@@ -853,13 +853,11 @@ app.post("/keyword-data", async (req, res) => {
       return res.json({ success: false, error: "Keyword missing" });
     }
 
-    // ==========================================
     // 1. GET FILTERS FROM N8N
-    // ==========================================
     const minVolume = Number(req.body?.minVolume) || 0;
-    const maxKd = Number(req.body?.maxKd) || 100;
+    const maxKd = Number(req.body?.maxKd) || 30;
     const intent = req.body?.intent || "Informational";
-    const maxRows = Number(req.body?.maxRows) || 0;
+    const maxRows = Number(req.body?.maxRows) || 1000;
 
     // Cache setup
     const cacheDir = "./kw-cache";
@@ -881,29 +879,85 @@ app.post("/keyword-data", async (req, res) => {
 
     console.log(`Searching keyword: "${keyword}" | Filters -> Min Vol: ${minVolume}, Max KD: ${maxKd}, Intent: ${intent}`);
 
-    // ==========================================
-    // 2. CONSTRUCT FILTERED URL (SPEED FIX)
-    // ==========================================
-    // This URL applies the filters immediately on the server side.
-    const filterParams = `&type=all&mode=1&sort=volume_desc` + 
-                         `&filter=H4sIAAAAAAAAA32OTQrDIBBG7zJrF4G2G68SgoiOrTBR0dFSSu5eU0tWJbv5eTPve4OJa0L27GNQhA0J5LwIMMmMwnrnvKnEr96%2FwYeGmdGCdJoKCogJs96vQd4ENE0VQU6bOEevB3qZtm7xgTFw%2Ba84nnYwPbIuOKKNWvlgqFpUFO%2B%2Bh54EZCw9cBlUwZyUQ821j08F87IbWqS6%2FgzPmG1RJtbA3%2FUHmQ85dC8BAAA%3D`;
+    // 2. BUILD INITIAL URL
+    const targetUrl = `https://sr.rankytools.com/analytics/keywordmagic/?q=${encodeURIComponent(keyword)}&db=us&type=all&mode=1`;
+    console.log("Navigating to page:", targetUrl);
     
-    const targetUrl = `https://sr.rankytools.com/analytics/keywordmagic/?q=${encodeURIComponent(keyword)}&db=us${filterParams}`;
-
-    console.log("Navigating to filtered URL:", targetUrl);
-
-    // ==========================================
-    // 3. OPEN PAGE AND SCRAPE
-    // ==========================================
     await page.goto(targetUrl, { waitUntil: "domcontentloaded", timeout: 120000 });
-
-    // Wait for the table to load
     await page.waitForSelector('[data-path="report.table.next_page_button"]', { timeout: 90000 });
-    console.log("Filtered Keyword Magic table loaded.");
+    console.log("Page loaded.");
 
-    // Detect total pages and total keywords from the *filtered* view
+    // ==========================================
+    // 3. APPLY FILTERS BY CLICKING (THE RELIABLE FIX)
+    // ==========================================
+    
+    // --- Apply KD Filter ---
+    try {
+        const kdButton = page.locator('button:has-text("KD %")').first();
+        if (await kdButton.isVisible()) {
+            await kdButton.click();
+            await page.waitForTimeout(1000);
+            // Select Custom Range
+            await page.locator('text="Custom range"').click();
+            await page.waitForTimeout(500);
+            // Fill inputs
+            const inputs = page.locator('input[type="number"]');
+            await inputs.nth(0).fill("0");
+            await inputs.nth(1).fill(String(maxKd));
+            await page.locator('button:has-text("Apply")').click();
+            await page.waitForTimeout(5000); // Wait for table reload
+            console.log(`✅ Applied KD filter: 0 - ${maxKd}`);
+        } else {
+            console.log("❌ KD Filter button not visible.");
+        }
+    } catch (e) { console.log("❌ Could not apply KD filter:", e.message); }
+
+    // --- Apply Intent Filter ---
+    if (intent) {
+        try {
+            const intentButton = page.locator('button:has-text("Intent")').first();
+            if (await intentButton.isVisible()) {
+                await intentButton.click();
+                await page.waitForTimeout(1000);
+                // Click the checkbox for the desired intent
+                await page.locator(`text="${intent}"`).click();
+                await page.locator('button:has-text("Apply")').click();
+                await page.waitForTimeout(5000); // Wait for table reload
+                console.log(`✅ Applied Intent filter: ${intent}`);
+            } else {
+                console.log("❌ Intent Filter button not visible.");
+            }
+        } catch (e) { console.log("❌ Could not apply Intent filter:", e.message); }
+    }
+
+    // --- Apply Volume Filter ---
+    if (minVolume > 0) {
+         try {
+            const volButton = page.locator('button:has-text("Volume")').first();
+            if (await volButton.isVisible()) {
+                await volButton.click();
+                await page.waitForTimeout(1000);
+                const volInput = page.locator('input[placeholder="From"]').first();
+                if (await volInput.isVisible()) {
+                    await volInput.fill(String(minVolume));
+                    await page.locator('button:has-text("Apply")').click();
+                    await page.waitForTimeout(5000); 
+                    console.log(`✅ Applied Volume filter: > ${minVolume}`);
+                } else {
+                    console.log("❌ Volume input not visible.");
+                }
+            } else {
+                console.log("❌ Volume Filter button not visible.");
+            }
+        } catch (e) { console.log("❌ Could not apply Volume filter:", e.message); }
+    }
+
+    // ==========================================
+    // 4. DETECT NEW TOTALS AND SCRAPE
+    // ==========================================
     let totalPages = 1;
     let totalExpected = 0;
+
     try {
       const lastPageAria = await page.locator('[data-path="report.table.last_page_button"]').getAttribute("aria-label").catch(() => "");
       const pageMatch = String(lastPageAria || "").match(/#(\d+)/);
@@ -921,15 +975,9 @@ app.post("/keyword-data", async (req, res) => {
       });
     } catch (e) {}
 
-    console.log(`Filtered Totals: ${totalPages} pages, ~${totalExpected} keywords.`);
+    console.log(`Filters applied. New Totals: ${totalPages} pages, ~${totalExpected} keywords.`);
 
     const allKeywords = new Map();
-    const cacheEveryPages = 5; 
-
-    // ==========================================
-    // 4. EARLY STOPPING LOGIC (TIMEOUT FIX)
-    // ==========================================
-    // If n8n doesn't send a maxRows, we force a limit of 1000 to prevent hanging forever
     const HARD_LIMIT = 1000;
     const effectiveMaxRows = maxRows > 0 ? maxRows : HARD_LIMIT;
 
@@ -972,12 +1020,10 @@ app.post("/keyword-data", async (req, res) => {
 
       console.log(`Page ${p}/${totalPages}: extracted ${batch.length} rows (${added} new), total unique: ${allKeywords.size}`);
 
-      // --- THE CRITICAL BREAK CONDITION ---
       if (allKeywords.size >= effectiveMaxRows) {
         console.log(`✅ Reached effective max rows limit (${effectiveMaxRows}). Stopping pagination early.`);
         break; 
       }
-      // ------------------------------------
 
       if (p === totalPages) break;
 
@@ -1019,43 +1065,23 @@ app.post("/keyword-data", async (req, res) => {
   }
 });
 app.post("/serp-data", async (req, res) => {
-
   try {
-
     // =====================================================
     // 1. NORMALIZE KEYWORD
     // =====================================================
-
     let keyword = req.body?.keyword;
-
-    if (typeof keyword !== "string") {
-      keyword = String(keyword || "");
-    }
-
-    // Remove whitespace
+    if (typeof keyword !== "string") keyword = String(keyword || "");
     keyword = keyword.trim();
-
-    // Remove one or multiple accidental "=" characters
-    // coming from n8n expressions
     keyword = keyword.replace(/^=+/, "").trim();
 
     if (!keyword) {
-
-      return res.status(400).json({
-        success: false,
-        error: "Keyword missing"
-      });
-
+      return res.status(400).json({ success: false, error: "Keyword missing" });
     }
-
 
     // =====================================================
     // 2. BUILD CORRECT RANKYTOOLS URL
     // =====================================================
-
-    const targetUrl =
-      `https://sr.rankytools.com/analytics/keywordoverview/?q=${encodeURIComponent(keyword)}&db=us`;
-
+    const targetUrl = `https://sr.rankytools.com/analytics/keywordoverview/?q=${encodeURIComponent(keyword)}&db=us`;
 
     console.log("\n====================================");
     console.log("RANKYTOOLS SERP RESEARCH");
@@ -1063,636 +1089,283 @@ app.post("/serp-data", async (req, res) => {
     console.log("URL:", targetUrl);
     console.log("====================================\n");
 
-
     // =====================================================
     // 3. LOAD PAGE
     // =====================================================
-
     await page.goto(targetUrl, {
       waitUntil: "domcontentloaded",
       timeout: 120000
     });
 
     console.log("Page loaded");
-
     await page.waitForTimeout(5000);
 
-
     // =====================================================
-    // 4. PROGRESSIVE SCROLL
+    // 4. PROGRESSIVE SCROLL — UPDATED SELECTORS
     // =====================================================
-
     console.log("Starting progressive scroll...");
 
+    // Primary + fallback selectors for the SERP container
+    const CONTAINER_SELECTORS = [
+      '.kwo-serp-table',                          // NEW: actual container class
+      '[data-testid="serp-analysis"]',            // possible testid
+      '#serp-analysis',                           // legacy fallback
+      'div[role="table"]'                         // structural fallback
+    ];
+
+    // Row selector — matches the current DOM
+    const ROW_SELECTOR = 'div[data-testid="serp-analysis-row"][role="row"]';
+
     let serpFound = false;
+    let workingContainerSelector = null;
 
     for (let i = 0; i < 18; i++) {
-
       await page.evaluate((step) => {
-
-        const viewport =
-          window.innerHeight || 900;
-
-        const target =
-          step * viewport * 0.85;
-
-        window.scrollTo({
-          top: target,
-          behavior: "instant"
-        });
-
+        const viewport = window.innerHeight || 900;
+        const target = step * viewport * 0.85;
+        window.scrollTo({ top: target, behavior: "instant" });
       }, i);
 
       await page.waitForTimeout(1500);
 
-
-      const count =
-        await page.locator("#serp-analysis").count();
-
-
-      console.log(
-        `Scroll ${i + 1}/18 | #serp-analysis: ${count}`
-      );
-
-
-      if (count > 0) {
-
-        serpFound = true;
-
-        break;
-
+      // Try each container selector
+      for (const sel of CONTAINER_SELECTORS) {
+        const count = await page.locator(sel).count();
+        if (count > 0) {
+          // Also verify a real data row is present
+          const rowCount = await page.locator(ROW_SELECTOR).count();
+          console.log(`Scroll ${i + 1}/18 | ${sel}: ${count} | rows: ${rowCount}`);
+          if (rowCount > 0) {
+            serpFound = true;
+            workingContainerSelector = sel;
+            break;
+          }
+        }
       }
 
+      if (serpFound) break;
     }
 
+    console.log("SERP container found:", serpFound, "| selector:", workingContainerSelector);
 
     // =====================================================
     // 5. EXTRA WAIT AFTER SERP MOUNTS
     // =====================================================
-
     if (serpFound) {
-
-      await page.locator("#serp-analysis")
+      await page.locator(workingContainerSelector)
+        .first()
         .scrollIntoViewIfNeeded()
         .catch(() => {});
-
       await page.waitForTimeout(5000);
-
     }
 
-
     // =====================================================
-    // 6. EXTRACT SERP
+    // 6. EXTRACT SERP — UPDATED SELECTORS
     // =====================================================
-
-    const result = await page.evaluate(() => {
-
-      const serp =
-        document.querySelector("#serp-analysis");
-
+    const result = await page.evaluate(({ containerSelectors, rowSelector }) => {
+      // Find container (first one that exists)
+      let serp = null;
+      for (const sel of containerSelectors) {
+        serp = document.querySelector(sel);
+        if (serp) break;
+      }
 
       if (!serp) {
-
         return {
-
           containerFound: false,
-
           rowsFound: 0,
-
           resultsFound: 0,
-
           results: [],
-
           structure: {}
-
         };
-
       }
 
-
       // =================================================
-      // FIND EXACT RANKYTOOLS SERP ROWS
+      // FIND ROWS — try multiple selectors
       // =================================================
+      let rows = Array.from(serp.querySelectorAll(rowSelector));
 
-      let rows =
-        Array.from(
-          serp.querySelectorAll(
-            '[data-testid="serp-analysis-row"]'
-          )
-        );
-
-
-      // Fallback
       if (!rows.length) {
-
-        rows =
-          Array.from(
-            serp.querySelectorAll(
-              '.kwo-serp-row-layout[role="row"]'
-            )
-          );
-
+        rows = Array.from(serp.querySelectorAll('[data-testid="serp-analysis-row"]'));
+      }
+      if (!rows.length) {
+        rows = Array.from(serp.querySelectorAll('.kwo-serp-row-layout[role="row"]'));
       }
 
+      // Filter out the header row (it has role="columnheader" inside)
+      rows = rows.filter(r => !r.querySelector('[role="columnheader"]'));
 
       const results = [];
 
-
-      // =================================================
-      // PROCESS EVERY ROW
-      // =================================================
-
       for (const row of rows) {
+        const rawText = (row.innerText || "").replace(/\s+/g, " ").trim();
 
-
-        // -------------------------------------------------
-        // RAW TEXT
-        // -------------------------------------------------
-
-        const rawText =
-          (row.innerText || "")
-            .replace(/\s+/g, " ")
-            .trim();
-
-
-        // -------------------------------------------------
-        // FIND ALL LINKS
-        // -------------------------------------------------
-
-        const links =
-          Array.from(
-            row.querySelectorAll("a[href]")
-          );
-
-
-        // -------------------------------------------------
+        // ---------------------------------------------
         // FIND EXTERNAL ORGANIC URL
-        // -------------------------------------------------
-
+        // ---------------------------------------------
+        const links = Array.from(row.querySelectorAll("a[href]"));
         let resultLink = null;
 
-
         for (const link of links) {
+          const href = link.href || "";
+          if (!href) continue;
+          if (!href.startsWith("http://") && !href.startsWith("https://")) continue;
 
-          const href =
-            link.href || "";
+          // Skip RankyTools internal links (analytics reports etc.)
+          if (href.includes("rankytools.com")) continue;
+          if (href.includes("semrush.com")) continue;
 
-
-          if (!href) {
-            continue;
+          // Real organic result — preferred selector
+          if (link.matches('a[data-testid="serp-table-url"], .kwo-link-url__link')) {
+            resultLink = link;
+            break;
           }
 
-
-          if (
-            !href.startsWith("http://") &&
-            !href.startsWith("https://")
-          ) {
-            continue;
-          }
-
-
-          // Ignore RankyTools/Semrush internal links
-          if (
-            href.includes("rankytools.com") ||
-            href.includes("semrush.com")
-          ) {
-            continue;
-          }
-
-
-          // Ignore RankyTools analytics links
-          if (
-            href.includes(
-              "/analytics/"
-            )
-          ) {
-            continue;
-          }
-
-
-          resultLink = link;
-
-          break;
-
+          if (!resultLink) resultLink = link;
         }
 
+        if (!resultLink) continue;
 
-        // -------------------------------------------------
-        // IMPORTANT:
-        // If there is no external URL this is NOT an
-        // organic competitor row.
-        // -------------------------------------------------
-
-        if (!resultLink) {
-          continue;
-        }
-
-
-        // -------------------------------------------------
+        // ---------------------------------------------
         // URL
-        // -------------------------------------------------
+        // ---------------------------------------------
+        const url = resultLink.href;
 
-        const url =
-          resultLink.href;
-
-
-        // -------------------------------------------------
+        // ---------------------------------------------
         // TITLE / LINK TEXT
-        // -------------------------------------------------
+        // ---------------------------------------------
+        const title = (resultLink.innerText || "").replace(/\s+/g, " ").trim();
 
-        const title =
-          (resultLink.innerText || "")
-            .replace(/\s+/g, " ")
-            .trim();
-
-
-        // -------------------------------------------------
+        // ---------------------------------------------
         // DOMAIN
-        // -------------------------------------------------
-
+        // ---------------------------------------------
         let domain = "";
-
-
         try {
-
-          domain =
-            new URL(url)
-              .hostname
-              .replace(/^www\./, "");
-
+          domain = new URL(url).hostname.replace(/^www\./, "");
         } catch (e) {
-
           domain = "";
-
         }
 
-
-        // -------------------------------------------------
-        // POSITION
-        // -------------------------------------------------
-
+        // ---------------------------------------------
+        // POSITION — use role="cell" siblings
+        // ---------------------------------------------
         let position = null;
-
-
-        const cells =
-          Array.from(
-            row.querySelectorAll(
-              '[role="cell"]'
-            )
-          );
-
-
+        const cells = Array.from(row.querySelectorAll('[role="cell"]'));
         for (const cell of cells) {
-
-          const text =
-            (cell.innerText || "")
-              .replace(/\s+/g, " ")
-              .trim();
-
-
-          if (
-            /^\d+$/.test(text)
-          ) {
-
-            const number =
-              Number(text);
-
-
-            if (
-              number >= 1 &&
-              number <= 100
-            ) {
-
-              position = number;
-
-              break;
-
-            }
-
+          const text = (cell.innerText || "").replace(/\s+/g, " ").trim();
+          if (/^\d+$/.test(text)) {
+            const n = Number(text);
+            if (n >= 1 && n <= 100) { position = n; break; }
           }
-
         }
-
-
-        // -------------------------------------------------
-        // FALLBACK POSITION
-        // -------------------------------------------------
-
         if (position === null) {
-
-          const match =
-            rawText.match(
-              /^\s*(\d{1,3})\b/
-            );
-
-
-          if (match) {
-
-            position =
-              Number(match[1]);
-
-          }
-
+          const match = rawText.match(/^\s*(\d{1,3})\b/);
+          if (match) position = Number(match[1]);
         }
 
-
-        // -------------------------------------------------
-        // DATA-TESTID METRICS
-        // -------------------------------------------------
-
+        // ---------------------------------------------
+        // METRICS — by data-testid
+        // ---------------------------------------------
         const getTestIdValue = (testid) => {
-
-          const element =
-            row.querySelector(
-              `[data-testid="${testid}"]`
-            );
-
-
-          return (
-            element?.innerText
-              ?.replace(/\s+/g, " ")
-              ?.trim()
-            || ""
-          );
-
+          const el = row.querySelector(`[data-testid="${testid}"]`);
+          return el?.innerText?.replace(/\s+/g, " ")?.trim() || "";
         };
 
-
-        const pageAS =
-          getTestIdValue(
-            "serp-table-page-score"
-          );
-
-
-        const refDomains =
-          getTestIdValue(
-            "serp-table-ref-domains"
-          );
-
-
-        const backlinks =
-          getTestIdValue(
-            "serp-table-backlinks"
-          );
-
-
-        const traffic =
-          getTestIdValue(
-            "serp-table-traffic"
-          );
-
-
-        const keywords =
-          getTestIdValue(
-            "serp-table-url-keywords"
-          );
-
-
-        // -------------------------------------------------
-        // SAVE
-        // -------------------------------------------------
+        const pageAS = getTestIdValue("serp-table-page-score");   // Domain AS
+        const backlinks = getTestIdValue("serp-table-backlinks");
+        const traffic = getTestIdValue("serp-table-traffic");
+        const refDomains = getTestIdValue("serp-table-ref-domains");
+        const keywords = getTestIdValue("serp-table-url-keywords");
 
         results.push({
-
           position,
-
           domain,
-
           title,
-
           url,
-
           pageAS,
-
           refDomains,
-
           backlinks,
-
           traffic,
-
           keywords,
-
           rawText
-
         });
-
       }
 
-
       // =================================================
-      // REMOVE DUPLICATES
+      // DEDUPE BY URL
       // =================================================
-
       const unique = [];
-
-      const seenUrls =
-        new Set();
-
-
+      const seen = new Set();
       for (const item of results) {
-
-        const key =
-          item.url.toLowerCase();
-
-
-        if (
-          seenUrls.has(key)
-        ) {
-          continue;
-        }
-
-
-        seenUrls.add(key);
-
+        const key = item.url.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
         unique.push(item);
-
       }
-
 
       // =================================================
       // SORT BY POSITION
       // =================================================
-
       unique.sort((a, b) => {
-
-        if (
-          a.position === null &&
-          b.position === null
-        ) {
-          return 0;
-        }
-
-
-        if (
-          a.position === null
-        ) {
-          return 1;
-        }
-
-
-        if (
-          b.position === null
-        ) {
-          return -1;
-        }
-
-
+        if (a.position === null && b.position === null) return 0;
+        if (a.position === null) return 1;
+        if (b.position === null) return -1;
         return a.position - b.position;
-
       });
 
-
       // =================================================
-      // DOM STRUCTURE DEBUG
+      // STRUCTURE DEBUG
       // =================================================
-
       const structure = {
-
-        serpId:
-          serp.id,
-
-        serpClass:
-          serp.className,
-
-        rowCount:
-          rows.length,
-
-        externalLinks:
-          Array.from(
-            serp.querySelectorAll(
-              'a[href^="http"]'
-            )
-          )
-          .filter(a => {
-
-            const href =
-              a.href || "";
-
-            return (
-              !href.includes(
-                "rankytools.com"
-              ) &&
-              !href.includes(
-                "semrush.com"
-              )
-            );
-
-          })
-          .length,
-
-        testIds:
-          Array.from(
-            serp.querySelectorAll(
-              "[data-testid]"
-            )
-          )
-          .map(el =>
-            el.getAttribute(
-              "data-testid"
-            )
-          )
+        containerTag: serp.tagName,
+        containerClass: serp.className,
+        rowCount: rows.length,
+        externalLinks: Array.from(serp.querySelectorAll('a[href^="http"]')).filter(a => {
+          const href = a.href || "";
+          return !href.includes("rankytools.com") && !href.includes("semrush.com");
+        }).length,
+        testIds: Array.from(serp.querySelectorAll("[data-testid]"))
+          .map(el => el.getAttribute("data-testid"))
           .filter(Boolean)
-          .filter(
-            (value, index, array) =>
-              array.indexOf(value) === index
-          ),
-
-        firstRowText:
-          rows[0]?.innerText
-            ?.replace(/\s+/g, " ")
-            ?.trim()
-            || ""
-
+          .filter((v, i, arr) => arr.indexOf(v) === i),
+        firstRowText: rows[0]?.innerText?.replace(/\s+/g, " ")?.trim() || ""
       };
-
-
-      // =================================================
-      // RETURN
-      // =================================================
 
       return {
-
         containerFound: true,
-
-        rowsFound:
-          rows.length,
-
-        resultsFound:
-          unique.length,
-
-        results:
-          unique.slice(0, 10),
-
+        rowsFound: rows.length,
+        resultsFound: unique.length,
+        results: unique.slice(0, 10),
         structure
-
       };
-
-    });
-
+    }, { containerSelectors: CONTAINER_SELECTORS, rowSelector: ROW_SELECTOR });
 
     // =====================================================
     // 7. RESPONSE
     // =====================================================
-
     return res.json({
-
       success: true,
-
       keyword,
-
-      source:
-        "RankyTools SERP Analysis",
-
-      url:
-        targetUrl,
-
+      source: "RankyTools SERP Analysis",
+      url: targetUrl,
       serp: {
-
-        containerFound:
-          result.containerFound,
-
-        rowsFound:
-          result.rowsFound,
-
-        resultsFound:
-          result.resultsFound,
-
-        results:
-          result.results
-
+        containerFound: result.containerFound,
+        rowsFound: result.rowsFound,
+        resultsFound: result.resultsFound,
+        results: result.results
       },
-
-      structure:
-        result.structure || {},
-
-      timestamp:
-        new Date().toISOString()
-
+      structure: result.structure || {},
+      timestamp: new Date().toISOString()
     });
-
 
   } catch (error) {
-
-    console.error(
-      "SERP ERROR:",
-      error
-    );
-
-
+    console.error("SERP ERROR:", error);
     return res.status(500).json({
-
       success: false,
-
-      error:
-        error.message,
-
-      timestamp:
-        new Date().toISOString()
-
+      error: error.message,
+      timestamp: new Date().toISOString()
     });
-
   }
-
 });
 // =====================================
 // NAVIGATE
