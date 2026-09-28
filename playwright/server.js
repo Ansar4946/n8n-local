@@ -1,7 +1,7 @@
 const express = require("express");
 const { chromium } = require("playwright");
 const fs = require("fs");
-
+const sharp = require('sharp'); 
 const SESSION_FILE="./ranky-session.json";
 
 const app = express();
@@ -1640,7 +1640,26 @@ error:error.message
 // =====================================
 // EXTRACT USING EXISTING SESSION
 // =====================================
+app.post('/crop',
+  express.raw({ type: 'image/*', limit: '20mb' }),
+  async (req, res) => {
+    try {
+      const w = parseInt(req.headers['x-target-width'] || '1600', 10);
+      const h = parseInt(req.headers['x-target-height'] || '900', 10);
+      const q = parseInt(req.headers['x-jpeg-quality'] || '85', 10);
 
+      const out = await sharp(req.body)
+        .resize(w, h, { fit: 'cover', position: 'attention' })
+        .jpeg({ quality: q })
+        .toBuffer();
+
+      res.set('Content-Type', 'image/jpeg').send(out);
+    } catch (e) {
+      console.error('crop error:', e);
+      res.status(500).json({ error: e.message });
+    }
+  }
+);
 
 app.post("/extract",async(req,res)=>{
 
