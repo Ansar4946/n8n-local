@@ -13,6 +13,108 @@ let browser = null;
 let context = null;
 let page = null;
 
+// =====================================
+// WATERMARK DETECTION
+// =====================================
+const Tesseract = require('tesseract.js');
+
+// Hosts that always serve watermarked stock photos
+const WATERMARKED_HOSTS = [
+  'gettyimages.com', 'media.gettyimages.com',
+  'istockphoto.com', 'shutterstock.com', 'alamy.com',
+  'dreamstime.com', 'depositphotos.com', '123rf.com',
+  'stock.adobe.com', 'adobe.stock', 'vectorstock.com',
+  'canstockphoto.com', 'bigstockphoto.com', 'pond5.com',
+  'agefotostock.com', 'stockfresh.com', 'visualchina.com',
+  'superstock.com', 'stocktrekimages.com'
+];
+
+// URL path shapes that are stock CDNs
+const STOCK_URL_PATTERNS = [
+  /gettyimages\.com\/id\//i,
+  /gettyimages\.com\/.*\/photo\//i,
+  /shutterstock\.com\/image-photo\//i,
+  /shutterstock\.com\/.*\/stock-photo/i,
+  /alamy\.com\/.*\/stock-photo/i,
+  /istockphoto\.com\/photo\//i,
+  /adobe\.com\/.*\/stock/i,
+  /depositphotos\.com\/\d+/i,
+  /dreamstime\.com\/.*stock-photo/i,
+  /123rf\.com\/.*photo_/i
+];
+
+// Text patterns found in watermarks (via OCR)
+const WATERMARK_TEXT_PATTERNS = [
+  /getty\s*images?/i,
+  /shutterstock/i,
+  /\balamy\b/i,
+  /\bistock\b/i,
+  /\bdreamstime\b/i,
+  /\bdepositphotos\b/i,
+  /\b123rf\b/i,
+  /\bstockphoto\b/i,
+  /\badobe\s*stock\b/i,
+  /\bvector\s*stock\b/i,
+  /\bcredit[:\s]/i,
+  /\ball rights reserved\b/i,
+  /\bsample\s*only\b/i,
+  /©/,
+  /watermark/i
+];
+
+let ocrWorker = null;
+async function getOcrWorker() {
+  if (ocrWorker) return ocrWorker;
+  console.log('[ocr] initializing tesseract worker...');
+  ocrWorker = await Tesseract.createWorker('eng');
+  console.log('[ocr] worker ready');
+  return ocrWorker;
+}
+
+// Layer 1: cheap URL/host check
+function looksLikeStockUrl(url) {
+  if (!url) return true;
+  const lower = url.toLowerCase();
+  if (WATERMARKED_HOSTS.some(h => lower.includes(h))) return true;
+  if (STOCK_URL_PATTERNS.some(p => p.test(url))) return true;
+  return false;
+}
+
+// Layer 2: OCR for actual watermark text
+async function containsWatermarkText(url) {
+  try {
+    const r = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+        'Referer': 'https://duckduckgo.com/'
+      },
+      redirect: 'follow'
+    });
+    if (!r.ok) return { watermarked: false, error: `HTTP ${r.status}` };
+
+    const buf = Buffer.from(await r.arrayBuffer());
+    if (buf.length < 2048) return { watermarked: false, error: 'too small' };
+
+    const small = await sharp(buf)
+      .resize(900, 900, { fit: 'inside', withoutEnlargement: true })
+      .grayscale()
+      .normalize()
+      .toBuffer();
+
+    const worker = await getOcrWorker();
+    const { data } = await worker.recognize(small);
+    const text = String(data.text || '').replace(/\s+/g, ' ').trim();
+
+    for (const p of WATERMARK_TEXT_PATTERNS) {
+      const m = text.match(p);
+      if (m) return { watermarked: true, matched: m[0], ocrText: text.slice(0, 200) };
+    }
+    return { watermarked: false, ocrText: text.slice(0, 200) };
+  } catch (e) {
+    console.log(`[ocr] error on ${url.slice(0, 60)}: ${e.message}`);
+    return { watermarked: false, error: e.message };
+  }
+}
 
 
 // =====================================
@@ -2106,6 +2208,166 @@ app.post("/fetch", async (req, res) => {
 });
 
 
+// POST /google-image
+// POST /google-image
+// Body: { "query": "imran khan portrait", "count": 5 }
+// Returns ONLY watermark-free images.
+// POST /google-image
+// Body: { "query": "imran khan portrait", "count": 5 }
+app.post('/google-image', async (req, res) => {
+  const { query, count = 5 } = req.body || {};
+  if (!query) return res.status(400).json({ error: 'query required' });
+
+  const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36';
+
+  try {
+    // ---------- 1. Fetch DDG HTML page to get vqd + cookies ----------
+    const initRes = await fetch(
+      `https://duckduckgo.com/?q=${encodeURIComponent(query)}&iax=images&ia=images`,
+      {
+        headers: {
+          'User-Agent': UA,
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          'Accept-Language': 'en-US,en;q=0.9'
+        }
+      }
+    );
+    if (!initRes.ok) throw new Error(`DDG init ${initRes.status}`);
+
+    const initHtml = await initRes.text();
+
+    // ---- capture cookies from Set-Cookie headers ----
+    // Node 20+ : initRes.headers.getSetCookie()
+    // Node 18  : initRes.headers.raw()['set-cookie']
+    let rawCookies = [];
+    try {
+      if (typeof initRes.headers.getSetCookie === 'function') {
+        rawCookies = initRes.headers.getSetCookie();
+      } else if (typeof initRes.headers.raw === 'function') {
+        rawCookies = initRes.headers.raw()['set-cookie'] || [];
+      }
+    } catch (e) { /* ignore */ }
+
+    // Reduce to "name=value; name2=value2"
+    const cookieHeader = rawCookies
+      .map(c => String(c).split(';')[0])
+      .filter(Boolean)
+      .join('; ');
+
+    console.log(`[image-search] cookies: ${cookieHeader.slice(0, 120)}...`);
+
+    // ---------- 2. Extract vqd (multiple patterns) ----------
+    let vqd = null;
+    for (const p of [
+      /vqd=["']?([\d-]+)["']?/,
+      /vqd=4-([\d-]+)/,
+      /"vqd":\s*"([\d-]+)"/,
+      /vqd%3D([\d-]+)/
+    ]) {
+      const m = initHtml.match(p);
+      if (m) { vqd = m[1]; break; }
+    }
+    if (!vqd) {
+      return res.json({
+        success: false, query, count: 0, images: [],
+        error: 'DDG_VQD_MISSING'
+      });
+    }
+
+    // ---------- 3. Fetch image JSON (with cookies + matching UA) ----------
+    const apiUrl =
+      `https://duckduckgo.com/i.js?l=us-en&o=json&q=${encodeURIComponent(query)}` +
+      `&vqd=${encodeURIComponent(vqd)}&f=,,,&p=1`;
+
+    const apiHeaders = {
+      'User-Agent': UA,
+      'Accept': 'application/json, text/javascript, */*; q=0.01',
+      'Accept-Language': 'en-US,en;q=0.9',
+      'Referer': 'https://duckduckgo.com/',
+      'X-Requested-With': 'XMLHttpRequest',
+      'Sec-Fetch-Dest': 'empty',
+      'Sec-Fetch-Mode': 'cors',
+      'Sec-Fetch-Site': 'same-origin'
+    };
+    if (cookieHeader) apiHeaders['Cookie'] = cookieHeader;
+
+    const imgRes = await fetch(apiUrl, { headers: apiHeaders });
+
+    if (!imgRes.ok) {
+      const body = await imgRes.text().catch(() => '');
+      console.error(`[image-search] i.js ${imgRes.status} — body: ${body.slice(0, 200)}`);
+      return res.json({
+        success: false, query, count: 0, images: [],
+        error: `DDG i.js ${imgRes.status}`,
+        vqd
+      });
+    }
+
+    const data = await imgRes.json();
+    const results = Array.isArray(data.results) ? data.results : [];
+
+    // ---------- 4. Normalize ----------
+    const candidates = results
+      .filter(r => r && r.image)
+      .map(r => ({
+        url: r.image,
+        thumbnail: r.thumbnail || r.image,
+        downloadUrl: r.image,
+        width: Number(r.width) || 0,
+        height: Number(r.height) || 0,
+        title: r.title || '',
+        source: r.source || '',
+        sourceUrl: r.url || '',
+        originalUrl: r.image,
+        alt: r.title || '',
+        description: r.title || ''
+      }));
+
+    // ---------- 5. Layer 1: reject stock CDNs ----------
+    const stockHosts = [
+      'gettyimages.com', 'istockphoto.com', 'shutterstock.com',
+      'alamy.com', 'dreamstime.com', 'depositphotos.com',
+      '123rf.com', 'stock.adobe.com', 'adobe.com/stock',
+      'vectorstock.com', 'bigstockphoto.com', 'canstockphoto.com'
+    ];
+    const layer1Clean = candidates.filter(c => {
+      const u = (c.url || '').toLowerCase();
+      return !stockHosts.some(h => u.includes(h));
+    });
+
+    // ---------- 6. Layer 2: OCR (optional, only if you installed tesseract.js) ----------
+    // If OCR is not set up, just return layer1Clean.
+    let finalImages = layer1Clean.slice(0, count);
+
+    // If you have OCR helpers defined earlier in server.js, uncomment this:
+    /*
+    finalImages = [];
+    for (const cand of layer1Clean) {
+      if (finalImages.length >= count) break;
+      const check = await containsWatermarkText(cand.url);
+      if (!check.watermarked) finalImages.push(cand);
+    }
+    */
+
+    return res.json({
+      success: true,
+      query,
+      count: finalImages.length,
+      images: finalImages,
+      meta: {
+        candidates: candidates.length,
+        layer1Clean: layer1Clean.length,
+        durationMs: Date.now() - Date.now()
+      }
+    });
+
+  } catch (e) {
+    console.error('[image-search] FATAL:', e);
+    return res.status(500).json({
+      success: false, query, count: 0, images: [], error: e.message
+    });
+  }
+});
 
 
 app.listen(3000,"0.0.0.0",()=>{
