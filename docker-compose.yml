@@ -13,6 +13,18 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
+    # Explicit DNS — prevents NXDOMAIN / "incorrect host" errors
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
+
+    # Prevent log files from filling up the disk
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
 
   n8n:
     image: n8nio/n8n:latest
@@ -32,8 +44,28 @@ services:
       GENERIC_TIMEZONE: Asia/Karachi
       N8N_SECURE_COOKIE: "false"
 
+      # Helpful for external HTTP requests from inside the container
+      N8N_DIAGNOSTICS_ENABLED: "false"
+      NODE_TLS_REJECT_UNAUTHORIZED: "0"
+
+      # Optional but useful for Wikimedia/press-site requests
+      N8N_DEFAULT_BINARY_DATA_MODE: "filesystem"
+
     volumes:
       - n8n_data:/home/node/.n8n
+
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
+
+    depends_on:
+      - postgres
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 
   playwright:
@@ -50,10 +82,23 @@ services:
     environment:
       RANKYTOOLS_USERNAME: ${RANKYTOOLS_USERNAME}
       RANKYTOOLS_PASSWORD: ${RANKYTOOLS_PASSWORD}
+      NODE_ENV: production
+      PORT: 3000
+
+    # Chromium needs shared memory; default 64MB causes random crashes
+    shm_size: '2gb'
+
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
+
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 
 volumes:
-
   postgres_data:
-
   n8n_data:

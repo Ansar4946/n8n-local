@@ -10,4 +10,9 @@ COPY server.js ./
 
 EXPOSE 3000
 
+RUN npm install sharp
+RUN npm install tesseract.js
+
+
+
 CMD ["node", "server.js"]

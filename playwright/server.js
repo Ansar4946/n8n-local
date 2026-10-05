@@ -943,25 +943,35 @@ error:error.message
 
 
 });
+// =====================================
+// KEYWORD DATA (RankyTools Keyword Magic)
+// Fails soft when the keyword has no data — returns count:0 so the workflow
+// can fall through to the Gemini keyword fallback.
+// =====================================
+// =====================================
+// KEYWORD DATA (RankyTools Keyword Magic)
+// Fails soft when the keyword has no data — returns count:0 so the workflow
+// can fall through to the Gemini keyword fallback.
+// =====================================
 app.post("/keyword-data", async (req, res) => {
   const startedAt = Date.now();
   try {
     if (!page) {
-      return res.json({ success: false, error: "No active session" });
+      return res.json({ success: false, error: "No active session", phase_status: "NO_SESSION" });
     }
 
     const keyword = req.body?.keyword;
     if (!keyword) {
-      return res.json({ success: false, error: "Keyword missing" });
+      return res.json({ success: false, error: "Keyword missing", phase_status: "NO_KEYWORD" });
     }
 
-    // 1. GET FILTERS FROM N8N
+    // ---- Filters from n8n ----
     const minVolume = Number(req.body?.minVolume) || 0;
     const maxKd = Number(req.body?.maxKd) || 30;
     const intent = req.body?.intent || "Informational";
     const maxRows = Number(req.body?.maxRows) || 1000;
 
-    // Cache setup
+    // ---- Cache ----
     const cacheDir = "./kw-cache";
     if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir, { recursive: true });
     const cacheKey = `${keyword.toLowerCase().replace(/[^a-z0-9]+/g, "-")}_v${minVolume}_kd${maxKd}_${intent.toLowerCase()}`;
@@ -973,95 +983,145 @@ app.post("/keyword-data", async (req, res) => {
         const stat = fs.statSync(cacheFile);
         if (Date.now() - stat.mtimeMs < CACHE_TTL_MS) {
           const cached = JSON.parse(fs.readFileSync(cacheFile, "utf-8"));
-          console.log(`Cache HIT for "${keyword}" (${cached.count} keywords)`);
+          console.log(`[kw] cache HIT for "${keyword}" (${cached.count} keywords)`);
           return res.json({ ...cached, fromCache: true });
         }
-      } catch (e) { console.log("Cache read failed:", e.message); }
+      } catch (e) {
+        console.log("[kw] cache read failed:", e.message);
+      }
     }
 
-    console.log(`Searching keyword: "${keyword}" | Filters -> Min Vol: ${minVolume}, Max KD: ${maxKd}, Intent: ${intent}`);
+    console.log(
+      `[kw] searching "${keyword}" | minVol=${minVolume} maxKd=${maxKd} intent=${intent}`
+    );
 
-    // 2. BUILD INITIAL URL
+    // ---- Build URL ----
     const targetUrl = `https://sr.rankytools.com/analytics/keywordmagic/?q=${encodeURIComponent(keyword)}&db=us&type=all&mode=1`;
-    console.log("Navigating to page:", targetUrl);
-    
     await page.goto(targetUrl, { waitUntil: "domcontentloaded", timeout: 120000 });
-    await page.waitForSelector('[data-path="report.table.next_page_button"]', { timeout: 90000 });
-    console.log("Page loaded.");
 
-    // ==========================================
-    // 3. APPLY FILTERS BY CLICKING (THE RELIABLE FIX)
-    // ==========================================
-    
-    // --- Apply KD Filter ---
+    // ---- Wait for EITHER a data table, a "no results" message, or a 20s timeout ----
+    // Do NOT wait for the next_page_button specifically — it doesn't render on empty pages.
     try {
-        const kdButton = page.locator('button:has-text("KD %")').first();
-        if (await kdButton.isVisible()) {
-            await kdButton.click();
-            await page.waitForTimeout(1000);
-            // Select Custom Range
-            await page.locator('text="Custom range"').click();
-            await page.waitForTimeout(500);
-            // Fill inputs
-            const inputs = page.locator('input[type="number"]');
-            await inputs.nth(0).fill("0");
-            await inputs.nth(1).fill(String(maxKd));
-            await page.locator('button:has-text("Apply")').click();
-            await page.waitForTimeout(5000); // Wait for table reload
-            console.log(`✅ Applied KD filter: 0 - ${maxKd}`);
-        } else {
-            console.log("❌ KD Filter button not visible.");
-        }
-    } catch (e) { console.log("❌ Could not apply KD filter:", e.message); }
+      await page.waitForFunction(() => {
+        const nextBtn = document.querySelector('[data-path="report.table.next_page_button"]');
+        if (nextBtn) return true;
 
-    // --- Apply Intent Filter ---
-    if (intent) {
-        try {
-            const intentButton = page.locator('button:has-text("Intent")').first();
-            if (await intentButton.isVisible()) {
-                await intentButton.click();
-                await page.waitForTimeout(1000);
-                // Click the checkbox for the desired intent
-                await page.locator(`text="${intent}"`).click();
-                await page.locator('button:has-text("Apply")').click();
-                await page.waitForTimeout(5000); // Wait for table reload
-                console.log(`✅ Applied Intent filter: ${intent}`);
-            } else {
-                console.log("❌ Intent Filter button not visible.");
-            }
-        } catch (e) { console.log("❌ Could not apply Intent filter:", e.message); }
+        const rows = document.querySelectorAll('[data-testid="table-row"]');
+        if (rows.length > 0) return true;
+
+        const body = (document.body?.innerText || "").toLowerCase();
+        if (/no results|no data|nothing found|no keywords|try another|no matching/i.test(body)) return true;
+
+        return false;
+      }, { timeout: 20000, polling: 500 });
+    } catch (e) {
+      console.log("[kw] wait timed out — treating as empty/no-data page");
     }
 
-    // --- Apply Volume Filter ---
-    if (minVolume > 0) {
-         try {
-            const volButton = page.locator('button:has-text("Volume")').first();
-            if (await volButton.isVisible()) {
-                await volButton.click();
-                await page.waitForTimeout(1000);
-                const volInput = page.locator('input[placeholder="From"]').first();
-                if (await volInput.isVisible()) {
-                    await volInput.fill(String(minVolume));
-                    await page.locator('button:has-text("Apply")').click();
-                    await page.waitForTimeout(5000); 
-                    console.log(`✅ Applied Volume filter: > ${minVolume}`);
-                } else {
-                    console.log("❌ Volume input not visible.");
-                }
-            } else {
-                console.log("❌ Volume Filter button not visible.");
-            }
-        } catch (e) { console.log("❌ Could not apply Volume filter:", e.message); }
+    // ---- Inspect page state ----
+    const pageState = await page.evaluate(() => {
+      const nextBtn = document.querySelector('[data-path="report.table.next_page_button"]');
+      const rows = document.querySelectorAll('[data-testid="table-row"]');
+      const bodyText = (document.body?.innerText || "").toLowerCase();
+      return {
+        hasNextBtn: !!nextBtn,
+        rowCount: rows.length,
+        emptyMessage: /no results|no data|nothing found|no keywords|try another|no matching/i.test(bodyText),
+        url: location.href
+      };
+    });
+
+    console.log(
+      `[kw] state: rows=${pageState.rowCount} nextBtn=${pageState.hasNextBtn} empty=${pageState.emptyMessage}`
+    );
+
+    // ---- Empty page → return success:true with count:0 (soft fail) ----
+    if (!pageState.hasNextBtn && pageState.rowCount === 0) {
+      const emptyResponse = {
+        success: true,
+        count: 0,
+        expected: 0,
+        totalPages: 0,
+        keywords: [],
+        url: pageState.url,
+        scrapedAt: new Date().toISOString(),
+        note: "No keywords found in RankyTools for this term"
+      };
+      try { fs.writeFileSync(cacheFile, JSON.stringify(emptyResponse, null, 2)); } catch (e) {}
+      return res.json(emptyResponse);
     }
 
     // ==========================================
-    // 4. DETECT NEW TOTALS AND SCRAPE
+    // APPLY FILTERS BY CLICKING
+    // ==========================================
+
+    // --- KD Filter ---
+    try {
+      const kdButton = page.locator('button:has-text("KD %")').first();
+      if (await kdButton.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await kdButton.click();
+        await page.waitForTimeout(1000);
+        await page.locator('text="Custom range"').click();
+        await page.waitForTimeout(500);
+        const inputs = page.locator('input[type="number"]');
+        await inputs.nth(0).fill("0");
+        await inputs.nth(1).fill(String(maxKd));
+        await page.locator('button:has-text("Apply")').click();
+        await page.waitForTimeout(5000);
+        console.log(`[kw] applied KD filter 0-${maxKd}`);
+      }
+    } catch (e) {
+      console.log("[kw] KD filter skipped:", e.message);
+    }
+
+    // --- Intent Filter ---
+    if (intent) {
+      try {
+        const intentButton = page.locator('button:has-text("Intent")').first();
+        if (await intentButton.isVisible({ timeout: 3000 }).catch(() => false)) {
+          await intentButton.click();
+          await page.waitForTimeout(1000);
+          await page.locator(`text="${intent}"`).click();
+          await page.locator('button:has-text("Apply")').click();
+          await page.waitForTimeout(5000);
+          console.log(`[kw] applied intent filter: ${intent}`);
+        }
+      } catch (e) {
+        console.log("[kw] intent filter skipped:", e.message);
+      }
+    }
+
+    // --- Volume Filter ---
+    if (minVolume > 0) {
+      try {
+        const volButton = page.locator('button:has-text("Volume")').first();
+        if (await volButton.isVisible({ timeout: 3000 }).catch(() => false)) {
+          await volButton.click();
+          await page.waitForTimeout(1000);
+          const volInput = page.locator('input[placeholder="From"]').first();
+          if (await volInput.isVisible().catch(() => false)) {
+            await volInput.fill(String(minVolume));
+            await page.locator('button:has-text("Apply")').click();
+            await page.waitForTimeout(5000);
+            console.log(`[kw] applied volume filter > ${minVolume}`);
+          }
+        }
+      } catch (e) {
+        console.log("[kw] volume filter skipped:", e.message);
+      }
+    }
+
+    // ==========================================
+    // DETECT TOTALS AND SCRAPE
     // ==========================================
     let totalPages = 1;
     let totalExpected = 0;
 
     try {
-      const lastPageAria = await page.locator('[data-path="report.table.last_page_button"]').getAttribute("aria-label").catch(() => "");
+      const lastPageAria = await page
+        .locator('[data-path="report.table.last_page_button"]')
+        .getAttribute("aria-label")
+        .catch(() => "");
       const pageMatch = String(lastPageAria || "").match(/#(\d+)/);
       if (pageMatch) totalPages = Number(pageMatch[1]);
 
@@ -1075,9 +1135,11 @@ app.post("/keyword-data", async (req, res) => {
         if (raw.endsWith("M")) return Math.round(parseFloat(raw) * 1000000);
         return Number(raw);
       });
-    } catch (e) {}
+    } catch (e) {
+      /* use defaults */
+    }
 
-    console.log(`Filters applied. New Totals: ${totalPages} pages, ~${totalExpected} keywords.`);
+    console.log(`[kw] totals: ${totalPages} pages, ~${totalExpected} keywords`);
 
     const allKeywords = new Map();
     const HARD_LIMIT = 1000;
@@ -1093,7 +1155,9 @@ app.post("/keyword-data", async (req, res) => {
             const kw = kwEl ? kwEl.innerText.trim() : "";
             if (!kw) return;
 
-            const intents = Array.from(row.querySelectorAll('[data-testid="table-cell-intent"] button')).map(b => (b.innerText || "").trim()).join(",");
+            const intents = Array.from(
+              row.querySelectorAll('[data-testid="table-cell-intent"] button')
+            ).map(b => (b.innerText || "").trim()).join(",");
 
             out.push({
               keyword: kw,
@@ -1102,7 +1166,10 @@ app.post("/keyword-data", async (req, res) => {
               volume: (row.querySelector('[data-testid="table-cell-volume"]')?.innerText || "").trim(),
               kd: (row.querySelector('[data-testid="table-cell-kd"] .sm-cell-kd__data')?.innerText || "").trim(),
               cpc: (row.querySelector('[data-testid="table-cell-cpc"]')?.innerText || "").trim(),
-              serpFeatures: (() => { const btn = row.querySelector('[data-testid="table-cell-serp-features"] button'); return btn ? (btn.getAttribute("aria-label") || btn.innerText || "").trim() : ""; })(),
+              serpFeatures: (() => {
+                const btn = row.querySelector('[data-testid="table-cell-serp-features"] button');
+                return btn ? (btn.getAttribute("aria-label") || btn.innerText || "").trim() : "";
+              })(),
               results: (row.querySelector('[data-testid="table-cell-results"] .sm-results-cell')?.innerText || "").trim(),
               updated: (row.querySelector('[data-testid="table-cell-updated"] .sm-last-changes-cell__text')?.innerText || "").trim()
             });
@@ -1120,11 +1187,11 @@ app.post("/keyword-data", async (req, res) => {
         }
       }
 
-      console.log(`Page ${p}/${totalPages}: extracted ${batch.length} rows (${added} new), total unique: ${allKeywords.size}`);
+      console.log(`[kw] page ${p}/${totalPages}: ${batch.length} rows (${added} new), total: ${allKeywords.size}`);
 
       if (allKeywords.size >= effectiveMaxRows) {
-        console.log(`✅ Reached effective max rows limit (${effectiveMaxRows}). Stopping pagination early.`);
-        break; 
+        console.log(`[kw] hit max rows (${effectiveMaxRows}), stopping`);
+        break;
       }
 
       if (p === totalPages) break;
@@ -1137,11 +1204,17 @@ app.post("/keyword-data", async (req, res) => {
       await nextBtn.click();
 
       try {
-        await page.waitForFunction((expected) => {
+        await page.waitForFunction(
+          (expected) => {
             const input = document.querySelector('[data-path="report.table.page_input"]');
             return input && input.value === String(expected);
-          }, p + 1, { timeout: 20000 });
-      } catch (e) { await page.waitForTimeout(3000); }
+          },
+          p + 1,
+          { timeout: 20000 }
+        );
+      } catch (e) {
+        await page.waitForTimeout(3000);
+      }
 
       await page.waitForTimeout(1500 + Math.random() * 1500);
     }
@@ -1154,16 +1227,20 @@ app.post("/keyword-data", async (req, res) => {
       totalPages,
       keywords,
       url: page.url(),
-      scrapedAt: new Date().toISOString()
+      scrapedAt: new Date().toISOString(),
+      durationMs: Date.now() - startedAt
     };
 
     try { fs.writeFileSync(cacheFile, JSON.stringify(response, null, 2)); } catch (e) {}
 
     return res.json(response);
-
   } catch (error) {
-    console.log("Keyword extraction error:", error);
-    return res.json({ success: false, error: error.message, phase_status: "KEYWORD_SCRAPE_FAILED" });
+    console.log("[kw] fatal:", error);
+    return res.json({
+      success: false,
+      error: error.message,
+      phase_status: "KEYWORD_SCRAPE_FAILED"
+    });
   }
 });
 app.post("/serp-data", async (req, res) => {
@@ -1742,6 +1819,22 @@ error:error.message
 // =====================================
 // EXTRACT USING EXISTING SESSION
 // =====================================
+// =====================================
+// CROP IMAGE
+// Smart crop that keeps the top of the head in frame for portraits.
+//
+// Headers (all optional):
+//   x-target-width    (default 1600)
+//   x-target-height   (default 900)
+//   x-jpeg-quality    (default 85)
+//   x-crop-strategy   auto | face | center | attention   (default "auto")
+//
+// Strategy behaviour:
+//   auto      → picks "top" for tall portrait sources, "attention" otherwise
+//   face      → always "top" (best for head-shots & people)
+//   center    → plain center crop
+//   attention → sharp's saliency (good for landscapes / products)
+// =====================================
 app.post('/crop',
   express.raw({ type: 'image/*', limit: '20mb' }),
   async (req, res) => {
@@ -1749,15 +1842,52 @@ app.post('/crop',
       const w = parseInt(req.headers['x-target-width'] || '1600', 10);
       const h = parseInt(req.headers['x-target-height'] || '900', 10);
       const q = parseInt(req.headers['x-jpeg-quality'] || '85', 10);
+      const strategy = String(req.headers['x-crop-strategy'] || 'auto').toLowerCase();
+
+      if (!req.body || !req.body.length) {
+        return res.status(400).json({ error: 'empty body' });
+      }
+
+      // Read source dimensions
+      const meta = await sharp(req.body).metadata();
+      const srcW = meta.width || 0;
+      const srcH = meta.height || 0;
+
+      // Pick position
+      let position = 'attention';
+      if (strategy === 'attention') {
+        position = 'attention';
+      } else if (strategy === 'center') {
+        position = 'center';
+      } else if (strategy === 'face') {
+        position = 'top';
+      } else {
+        // auto: portrait-ish source → bias to top so the head is not cut off
+        if (srcH > srcW * 1.15) {
+          position = 'top';
+        } else {
+          position = 'attention';
+        }
+      }
+
+      console.log(
+        `[crop] src=${srcW}x${srcH} → ${w}x${h} | strategy=${strategy} position=${position}`
+      );
 
       const out = await sharp(req.body)
-        .resize(w, h, { fit: 'cover', position: 'attention' })
-        .jpeg({ quality: q })
+        .rotate()                                     // honour EXIF orientation
+        .resize(w, h, {
+          fit: 'cover',
+          position,                                   // 'top' | 'center' | 'attention'
+          withoutEnlargement: false                   // allow upscale for small thumbs
+        })
+        .sharpen({ sigma: 0.8 })                      // subtle sharpen after resize
+        .jpeg({ quality: q, mozjpeg: true })          // better JPEG compression
         .toBuffer();
 
       res.set('Content-Type', 'image/jpeg').send(out);
     } catch (e) {
-      console.error('crop error:', e);
+      console.error('[crop] error:', e);
       res.status(500).json({ error: e.message });
     }
   }
