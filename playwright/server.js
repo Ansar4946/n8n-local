@@ -6,7 +6,8 @@ const SESSION_FILE="./ranky-session.json";
 
 const app = express();
 
-app.use(express.json());
+// 5mb: /ahrefs-serp-data accepts a saved page as `html` for offline dry-runs
+app.use(express.json({ limit: "5mb" }));
 
 
 let browser = null;
@@ -1547,9 +1548,623 @@ app.post("/serp-data", async (req, res) => {
   }
 });
 // =====================================
-// NAVIGATE
+// AHREFS KEYWORDS EXPLORER
 // =====================================
+app.post("/ahrefs-search", async (req, res) => {
+  try {
+    const keyword = String(req.body?.keyword || "").trim();
+    if (!keyword) return res.json({ success: false, error: "Keyword missing" });
+    if (!page) return res.json({ success: false, error: "No active browser session" });
 
+    console.log(`[Ahrefs] Searching for: ${keyword}`);
+
+    // Generated CSS classes change frequently. The placeholder and accessible
+    // button names are stable in the supplied Ahrefs DOM captures.
+    let searchInput = page.locator('textarea[placeholder*="Enter keywords"]').first();
+    if (!(await searchInput.isVisible({ timeout: 3000 }).catch(() => false))) {
+      // The first load after login can be slow, so retry once before failing.
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        try {
+          await page.goto("https://arx.rankytools.com/keywords-explorer", {
+            waitUntil: "domcontentloaded",
+            timeout: 60000
+          });
+          break;
+        } catch (navErr) {
+          if (attempt === 2) throw navErr;
+          console.log("[Ahrefs] keywords-explorer load timed out, retrying once");
+        }
+      }
+      searchInput = page.locator('textarea[placeholder*="Enter keywords"]').first();
+    }
+    await searchInput.waitFor({ state: "visible", timeout: 30000 });
+    await searchInput.fill(keyword);
+
+    const searchButton = page.getByRole("button", { name: /^Search$/ }).first();
+    await searchButton.waitFor({ state: "visible", timeout: 10000 });
+    await searchButton.click();
+
+    await page.waitForURL(/\/keywords-explorer\/google\/[^/]+\/overview\?keyword=/, {
+      timeout: 60000
+    }).catch(() => {});
+
+    // The overview page has several "View all" links. Select the matching
+    // terms report explicitly so questions/related terms are never scraped.
+    const matchingTermsLink = page.locator(
+      'a[href*="/keywords-explorer/google/"][href*="/ideas/matchingTerms"][href*="matchingTermsMode=termsMatch"]'
+    ).first();
+    if (await matchingTermsLink.isVisible({ timeout: 15000 }).catch(() => false)) {
+      await matchingTermsLink.click();
+    } else {
+      const overviewUrl = page.url();
+      const parsed = new URL(overviewUrl);
+      const overviewKeyword = parsed.searchParams.get("keyword") || keyword;
+      await page.goto(
+        `https://arx.rankytools.com/keywords-explorer/google/us/ideas/matchingTerms?keyword=${encodeURIComponent(overviewKeyword)}&matchingTermsMode=termsMatch`,
+        { waitUntil: "domcontentloaded", timeout: 60000 }
+      );
+    }
+
+    await page.waitForURL(/\/keywords-explorer\/google\/[^/]+\/ideas\/matchingTerms/, {
+      timeout: 60000
+    }).catch(() => {});
+    await page.waitForFunction(
+      () => document.querySelectorAll("tbody tr, [role=row]").length > 0 || /no keywords|no results|no data/i.test(document.body?.innerText || ""),
+      { timeout: 30000, polling: 500 }
+    ).catch(() => {});
+
+    res.json({
+      success: true,
+      keyword,
+      url: page.url(),
+      title: await page.title(),
+      phase: "matching_terms",
+      message: "Ahrefs search opened the matching terms report"
+    });
+
+  } catch (error) {
+    console.log("Ahrefs Search Error:", error);
+    res.json({ success: false, error: error.message, url: page ? page.url() : null });
+  }
+});
+// =====================================
+// AHREFS KEYWORD DATA
+// =====================================
+app.post("/ahrefs-keyword-data", async (req, res) => {
+  const startedAt = Date.now();
+  try {
+    if (!page) return res.json({ success: false, error: "No active session" });
+    const keyword = String(req.body?.keyword || "").trim();
+    if (!keyword) return res.json({ success: false, error: "Keyword missing" });
+
+    const maxKd = Number.isFinite(Number(req.body?.maxKd)) ? Number(req.body.maxKd) : 30;
+    const minVolume = Number.isFinite(Number(req.body?.minVolume)) ? Number(req.body.minVolume) : 0;
+    const maxRows = Math.max(20, Math.min(Number(req.body?.maxRows) || 500, 2000));
+    // "I" = keep informational keywords only (rows with no intent label are kept).
+    const intentOnly = String(req.body?.intent || "").trim().toUpperCase().charAt(0) === "I";
+    // Extra Ahrefs reports to read when the matching-terms report is too thin.
+    // Each report is one more page load (credits), so they are only used on demand.
+    const extraReports = (Array.isArray(req.body?.reports) ? req.body.reports : ["relatedTerms", "searchSuggestions"])
+      .filter((r) => r === "relatedTerms" || r === "searchSuggestions");
+    const minNeeded = Math.max(1, Number(req.body?.minNeeded) || 20);
+    console.log(`[Ahrefs] Reading matching terms for "${keyword}" (KD <= ${maxKd}, volume >= ${minVolume}, intent=${intentOnly ? "I" : "any"})`);
+
+    // If a caller invokes this endpoint directly, put the session on the same
+    // matching-terms page that /ahrefs-search produces.
+    if (!/\/ideas\/matchingTerms/.test(page.url())) {
+      await page.goto(
+        `https://arx.rankytools.com/keywords-explorer/google/us/ideas/matchingTerms?keyword=${encodeURIComponent(keyword)}&matchingTermsMode=termsMatch`,
+        { waitUntil: "domcontentloaded", timeout: 60000 }
+      );
+      await page.waitForFunction(
+        () => document.querySelectorAll("tbody tr, [role=row]").length > 0 || /no keywords|no results|no data/i.test(document.body?.innerText || ""),
+        { timeout: 30000, polling: 500 }
+      ).catch(() => {});
+    }
+
+    // Apply filters when the UI exposes them. Client-side filtering below is
+    // retained because Ahrefs renders the controls and rows lazily.
+    try {
+      const kdFilterBtn = page.getByRole("button", { name: /^KD(?:[: ]|$)/i }).first();
+      if (await kdFilterBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+        await kdFilterBtn.click();
+        const customRange = page.getByText("Custom range", { exact: true }).first();
+        if (await customRange.isVisible({ timeout: 1500 }).catch(() => false)) await customRange.click();
+        const toInput = page.locator('input[placeholder="To"], input[aria-label*="to" i]').first();
+        if (await toInput.isVisible({ timeout: 2000 }).catch(() => false)) {
+          await toInput.fill(String(maxKd));
+          const apply = page.getByRole("button", { name: /Show results|Apply/i }).first();
+          if (await apply.isVisible({ timeout: 1000 }).catch(() => false)) await apply.click();
+          else await toInput.press("Enter");
+          await page.waitForTimeout(2000);
+        }
+      }
+    } catch (e) {
+      console.log("[Ahrefs] UI KD filter unavailable; using client-side filter:", e.message);
+    }
+
+    if (minVolume > 0) {
+      try {
+        const volumeBtn = page.getByRole("button", { name: /^Volume:/i }).first();
+        if (await volumeBtn.isVisible({ timeout: 1500 }).catch(() => false)) {
+          await volumeBtn.click();
+          const fromInput = page.locator('input[placeholder="From"], input[aria-label*="from" i]').first();
+          if (await fromInput.isVisible({ timeout: 1500 }).catch(() => false)) {
+            await fromInput.fill(String(minVolume));
+            const apply = page.getByRole("button", { name: /Show results|Apply/i }).first();
+            if (await apply.isVisible({ timeout: 1000 }).catch(() => false)) await apply.click();
+            else await fromInput.press("Enter");
+            await page.waitForTimeout(2000);
+          }
+        }
+      } catch (e) {
+        console.log("[Ahrefs] UI volume filter unavailable; using client-side filter:", e.message);
+      }
+    }
+
+    // Wait until real data rows (with a keyword link) are rendered and the row
+    // count stops changing. A bare "tbody tr" can be a loading skeleton, which
+    // made the scrape run on an empty table.
+    const waitForKeywordRows = async () => {
+      await page.waitForFunction(
+        () => document.querySelectorAll('tbody tr a[href*="/overview"]').length > 0 || /no keywords|no results|no data/i.test(document.body?.innerText || ""),
+        { timeout: 45000, polling: 500 }
+      ).catch(() => {});
+      let last = -1;
+      let stable = 0;
+      for (let i = 0; i < 16 && stable < 3; i++) {
+        const count = await page.evaluate(() => document.querySelectorAll('tbody tr a[href*="/overview"]').length).catch(() => 0);
+        stable = count > 0 && count === last ? stable + 1 : 0;
+        last = count;
+        await page.waitForTimeout(500);
+      }
+    };
+    await waitForKeywordRows();
+
+    const scrapeKeywords = () => page.evaluate(({ limitKd, minimumVolume, rowLimit, onlyInformational }) => {
+      const text = (el) => String(el?.innerText || el?.textContent || "").replace(/\s+/g, " ").trim();
+      // Ahrefs includes a blank side-gap <td> and a checkbox <th> before the
+      // data columns. Read every direct header cell so header and row indexes
+      // stay aligned (Keyword is index 2 and KD is index 5 in the supplied DOM).
+      const headerNodes = [...document.querySelectorAll("thead tr:first-child > th, thead tr:first-child > td, [role=columnheader]")];
+      const headers = headerNodes.map(text).map((v) => v.toLowerCase());
+      const indexOf = (patterns) => headers.findIndex((h) => patterns.some((p) => p.test(h)));
+      const keywordIndex = indexOf([/keyword/]);
+      const kdIndex = indexOf([/^kd$/, /keyword difficulty/, /difficulty/]);
+      const volumeIndex = indexOf([/search volume/, /volume/, /^sv$/]);
+      const intentIndex = indexOf([/intent/]);
+      const parseMetric = (raw) => {
+        const s = String(raw || "").replace(/,/g, "").trim().toUpperCase();
+        const m = s.match(/-?\d+(?:\.\d+)?/);
+        if (!m) return null;
+        const n = Number(m[0]);
+        if (/B\b/.test(s)) return Math.round(n * 1e9);
+        if (/M\b/.test(s)) return Math.round(n * 1e6);
+        if (/K\b/.test(s)) return Math.round(n * 1e3);
+        return n;
+      };
+      const rowNodes = [...document.querySelectorAll("tbody tr, [role=row]")];
+      const seen = new Set();
+      const out = [];
+      for (const row of rowNodes) {
+        const cells = [...row.querySelectorAll(":scope > td, :scope > [role=cell]")];
+        const values = cells.map(text);
+        const link = row.querySelector('a[href*="/keywords-explorer/google/"][href*="/overview"], a[href*="/overview?keyword="]');
+        const kw = text(link) || (keywordIndex >= 0 ? values[keywordIndex] : values.find((v) => /\s/.test(v) && v.length > 2));
+        if (!kw || /^keyword$/i.test(kw)) continue;
+        const kdRaw = kdIndex >= 0 ? values[kdIndex] : values.find((v) => /^\d{1,3}(?:\.\d+)?\s*%?$/.test(v));
+        const kd = parseMetric(kdRaw);
+        // KD "N/A" means Ahrefs has no difficulty score yet, not that the keyword
+        // is bad. Keep it (volume still applies) and only drop a known KD above the limit.
+        if (kd != null && kd > limitKd) continue;
+        const volumeRaw = volumeIndex >= 0 ? values[volumeIndex] : "";
+        const volume = parseMetric(volumeRaw);
+        if (minimumVolume > 0 && (volume == null || volume < minimumVolume)) continue;
+        const intentLabel = intentIndex >= 0 ? values[intentIndex] || "" : "";
+        if (onlyInformational && intentLabel && !/I/.test(intentLabel)) continue;
+        const key = kw.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push({
+          keyword: kw,
+          kd: kd == null ? "N/A" : String(kd),
+          volume: volumeRaw,
+          intent: intentLabel,
+          cpc: "",
+          serpFeatures: "",
+          parentTopic: "",
+          source: "ahrefs"
+        });
+        if (out.length >= rowLimit) break;
+      }
+      return out;
+    }, { limitKd: maxKd, minimumVolume: minVolume, rowLimit: maxRows, onlyInformational: intentOnly });
+
+    // The seed Ahrefs actually searched (used for the extra report URLs)
+    let reportSeed = keyword;
+    try { reportSeed = new URL(page.url()).searchParams.get("keyword") || keyword; } catch (e) {}
+
+    let keywords = await scrapeKeywords();
+    if (keywords.length === 0) {
+      console.log("[Ahrefs] First scrape empty, waiting for the table and retrying once");
+      await page.waitForTimeout(4000);
+      await waitForKeywordRows();
+      keywords = await scrapeKeywords();
+    }
+
+    // Too few keywords? Read more Ahrefs reports for the same seed and merge them.
+    const reportsUsed = ["matchingTerms"];
+    for (const report of extraReports) {
+      if (keywords.length >= minNeeded) break;
+      try {
+        console.log(`[Ahrefs] Only ${keywords.length}/${minNeeded} keywords, reading ${report}`);
+        await page.goto(
+          `https://arx.rankytools.com/keywords-explorer/google/us/ideas/${report}?keyword=${encodeURIComponent(reportSeed)}`,
+          { waitUntil: "domcontentloaded", timeout: 60000 }
+        );
+        await waitForKeywordRows();
+        const extra = await scrapeKeywords();
+        const have = new Set(keywords.map((k) => k.keyword.toLowerCase()));
+        for (const row of extra) {
+          if (!have.has(row.keyword.toLowerCase())) { have.add(row.keyword.toLowerCase()); keywords.push({ ...row, report }); }
+        }
+        reportsUsed.push(report);
+      } catch (e) {
+        console.log(`[Ahrefs] ${report} skipped: ${e.message}`);
+      }
+    }
+    const volumeNumber = (v) => { const m = String(v || "").replace(/,/g, "").toUpperCase().match(/-?\d+(?:\.\d+)?/); if (!m) return 0; const n = Number(m[0]); return /K\b/.test(String(v).toUpperCase()) ? n * 1e3 : /M\b/.test(String(v).toUpperCase()) ? n * 1e6 : n; };
+    keywords.sort((a, b) => volumeNumber(b.volume) - volumeNumber(a.volume));
+    keywords = keywords.slice(0, maxRows);
+
+    console.log(`[Ahrefs] Scraped ${keywords.length} rows`);
+
+    // Soft fail if no keywords found (so n8n can fallback to Gemini)
+    if (keywords.length === 0) {
+      return res.json({
+        success: true,
+        count: 0,
+        keywords: [],
+        note: "No keywords found or table was empty",
+        url: page.url(),
+        source: "ahrefs"
+      });
+    }
+
+    const response = {
+      success: true,
+      count: keywords.length,
+      keywords,
+      url: page.url(),
+      source: "ahrefs",
+      reportsUsed,
+      scrapedAt: new Date().toISOString(),
+      durationMs: Date.now() - startedAt
+    };
+
+    res.json(response);
+
+  } catch (error) {
+    console.log("[Ahrefs] Fatal error:", error);
+    res.json({
+      success: false,
+      error: error.message,
+      phase_status: "AHREFS_SCRAPE_FAILED"
+    });
+  }
+});
+
+// =====================================
+// AHREFS SERP OVERVIEW  (separate from the SEMrush /serp-data endpoint)
+//
+// Reads the "SERP overview" table of the Ahrefs Keywords Explorer overview page:
+//   https://arx.rankytools.com/keywords-explorer/google/<country>/overview?keyword=<kw>
+// Cells are mapped by their column header text (Search result, Page type, Words, DR, UR,
+// Backlinks, Domains, Traffic, Value, Keywords, Top keyword, Volume), never by the generated
+// css-xxxx class names. Rows that are SERP features (Top stories, AI Overview, Sitelinks)
+// are reported in `features`, and Google redirect links (google.com/goto?url=...) are skipped
+// because they hide the real address.
+//
+// Body: { keyword, country = "us", maxResults = 10, includeRedirects = false, html }
+//   html  = optional saved page. Parses it offline: no Ahrefs request, no credits.
+// The response mirrors /serp-data: { serp: { containerFound, rowsFound, resultsFound, results } }
+// =====================================
+function ahrefsSerpExtract({ wantRedirects }) {
+  const txt = (el) => String((el && (el.innerText != null ? el.innerText : el.textContent)) || "").replace(/\s+/g, " ").trim();
+  const num = (raw) => {
+    const s = String(raw || "").replace(/[$,\s]/g, "").toUpperCase();
+    const m = s.match(/^-?\d+(?:\.\d+)?/);
+    if (!m) return null;
+    const n = Number(m[0]);
+    if (/B$/.test(s)) return Math.round(n * 1e9);
+    if (/M$/.test(s)) return Math.round(n * 1e6);
+    if (/K$/.test(s)) return Math.round(n * 1e3);
+    return n;
+  };
+  const isNA = (v) => !v || /^n\/?a$/i.test(v);
+  const leafTexts = (td) => {
+    const out = [];
+    td.querySelectorAll("*").forEach((e) => { if (!e.children.length) { const t = txt(e); if (t && !out.includes(t)) out.push(t); } });
+    return out;
+  };
+
+  const table = [...document.querySelectorAll("table")].find((t) => /search result/i.test(txt(t.querySelector("thead"))));
+  if (!table) return { containerFound: false, rowsFound: 0, results: [], features: [], headers: [], title: "" };
+
+  // Column map. A header with colspan=3 ("Search result") covers checkbox, position and result.
+  const cols = [];
+  table.querySelectorAll("thead tr:first-child > th").forEach((th) => {
+    const label = txt(th).toLowerCase();
+    const span = Number(th.getAttribute("colspan") || 1);
+    for (let i = 0; i < span; i++) cols.push(i === span - 1 ? label : "");
+  });
+  // tolerant: Ahrefs shows "Traffic" on some pages and "Est. traffic" on others (and "Est. value")
+  const at = (name) => cols.findIndex((l) => l === name || l.endsWith(" " + name));
+  const idx = {
+    result: at("search result"), type: at("page type"), words: at("words"), dr: at("dr"), ur: at("ur"),
+    backlinks: at("backlinks"), domains: at("domains"), traffic: at("traffic"), value: at("value"),
+    keywords: at("keywords"), topKeyword: at("top keyword"), volume: at("volume")
+  };
+  idx.position = idx.result - 1;
+
+  const results = [];
+  const features = [];
+  let lastPosition = null;
+  const seen = new Set();
+  const rows = [...table.querySelectorAll("tbody > tr")];
+
+  for (const row of rows) {
+    const tds = [...row.children].filter((c) => c.tagName === "TD");
+    const resultCell = tds[idx.result];
+    const firstLink = resultCell ? resultCell.querySelector("a[href]") : null;
+    const isOrganic = tds.length >= cols.length - 1 && !!firstLink;
+
+    if (!isOrganic) {
+      // SERP feature row (Top stories, AI Overview, Sitelinks ...)
+      const label = txt(row.querySelector("button")) || txt(tds[tds.length - 1]).slice(0, 40);
+      const posText = tds.length >= 2 ? txt(tds[idx.position]) : "";
+      const position = /^\d+$/.test(posText) ? Number(posText) : lastPosition;
+      if (label) features.push({ type: label, position, linkCount: row.querySelectorAll("a[href]").length });
+      continue;
+    }
+
+    const position = num(txt(tds[idx.position]));
+    lastPosition = position;
+    const href = firstLink.href;
+    const isRedirect = /^https?:\/\/(www\.)?google\.[a-z.]+\/(goto|url)\b/i.test(href);
+    const title = txt(firstLink);
+    const cell = (i) => (i >= 0 && tds[i] ? txt(tds[i]) : "");
+    const raw = {
+      words: cell(idx.words), dr: cell(idx.dr), ur: cell(idx.ur), backlinks: cell(idx.backlinks),
+      domains: cell(idx.domains), traffic: cell(idx.traffic), value: cell(idx.value),
+      keywords: cell(idx.keywords), topKeyword: cell(idx.topKeyword), volume: cell(idx.volume)
+    };
+    let domain = "";
+    if (!isRedirect) { try { domain = new URL(href).hostname.replace(/^www\./, ""); } catch (e) {} }
+
+    if (isRedirect && !wantRedirects) {
+      features.push({ type: "Google redirect link (skipped)", position, linkCount: 1, title });
+      continue;
+    }
+    const key = href.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    const clean = (v) => (isNA(v) ? "" : v);
+    results.push({
+      position,
+      domain,
+      title,
+      url: href,
+      isRedirect,
+      pageType: idx.type >= 0 && tds[idx.type] ? leafTexts(tds[idx.type]) : [],
+      words: num(raw.words),
+      dr: num(raw.dr),
+      ur: num(raw.ur),
+      // same field names the SEMrush /serp-data endpoint returns, so the n8n nodes keep working
+      pageAS: clean(raw.dr),
+      refDomains: clean(raw.domains),
+      backlinks: clean(raw.backlinks),
+      traffic: clean(raw.traffic),
+      keywords: clean(raw.keywords),
+      trafficValue: clean(raw.value),
+      topKeyword: clean(raw.topKeyword),
+      topKeywordVolume: clean(raw.volume),
+      metrics: {
+        backlinks: num(raw.backlinks), refDomains: num(raw.domains), traffic: num(raw.traffic),
+        trafficValue: num(raw.value), keywords: num(raw.keywords), topKeywordVolume: num(raw.volume)
+      }
+    });
+  }
+
+  const heading = [...document.querySelectorAll("span, div")].map((e) => (e.children.length ? "" : txt(e))).find((t) => /^SERP overview for/i.test(t)) || "";
+  const kwMatch = heading.match(/SERP overview for\s+["“]?(.*?)["”]?$/i);
+  return {
+    containerFound: true,
+    rowsFound: rows.length,
+    results,
+    features,
+    headers: cols.filter(Boolean),
+    title: heading,
+    keywordOnPage: kwMatch ? kwMatch[1] : ""
+  };
+}
+
+// Presses the "Update" button next to "SERP not found. Try updating. It will cost you one credit."
+// The message and the button can be separate elements, so the smallest element that holds the message
+// is found first, then its ancestors are searched for a button / link whose text is exactly "Update".
+async function ahrefsPressUpdate(target) {
+  return target.evaluate(() => {
+    const txt = (e) => String(e.textContent || "").replace(/\s+/g, " ").trim();
+    const holders = [...document.querySelectorAll("*")].filter((e) => /SERP not found/i.test(txt(e)));
+    if (!holders.length) return false;
+    const marker = holders[holders.length - 1]; // document order puts the deepest holder last
+    for (let el = marker; el && el !== document.documentElement; el = el.parentElement) {
+      const btn = [...el.querySelectorAll("button, [role=button], a, span")].find((b) => /^update$/i.test(txt(b)));
+      if (btn) { (btn.closest("button, [role=button], a") || btn).click(); return true; }
+    }
+    return false;
+  }).catch(() => false);
+}
+
+app.post("/ahrefs-serp-data", async (req, res) => {
+  const startedAt = Date.now();
+  let tempBrowser = null;
+  try {
+    const keyword = String(req.body?.keyword || "").replace(/^=+/, "").trim();
+    const html = typeof req.body?.html === "string" ? req.body.html : "";
+    const country = /^[a-z]{2}$/i.test(String(req.body?.country || "")) ? String(req.body.country).toLowerCase() : "us";
+    const maxResults = Math.max(1, Math.min(Number(req.body?.maxResults) || 10, 30));
+    const wantRedirects = req.body?.includeRedirects === true;
+
+    let target;
+    let sourceUrl = "";
+    let loadedPage = false;
+
+    if (html) {
+      // Offline dry-run: parse a saved copy of the Ahrefs page. No Ahrefs request, no credits.
+      tempBrowser = await chromium.launch({ headless: true, args: ["--no-sandbox", "--disable-dev-shm-usage"] });
+      target = await tempBrowser.newPage();
+      await target.setContent(html, { waitUntil: "domcontentloaded" });
+      sourceUrl = "html-input";
+    } else {
+      if (!keyword) return res.status(400).json({ success: false, error: "Keyword missing" });
+      if (!page) return res.json({ success: false, error: "No active browser session. Call /login first.", phase_status: "NO_SESSION" });
+      target = page;
+
+      // Reuse the page when it already shows this keyword's overview (saves a page load and credits).
+      let alreadyThere = false;
+      try {
+        const u = new URL(page.url());
+        alreadyThere = u.pathname === `/keywords-explorer/google/${country}/overview`
+          && (u.searchParams.get("keyword") || "").toLowerCase() === keyword.toLowerCase();
+      } catch (e) {}
+
+      if (!alreadyThere) {
+        const wanted = `https://arx.rankytools.com/keywords-explorer/google/${country}/overview?keyword=${encodeURIComponent(keyword)}`;
+        console.log(`[Ahrefs SERP] opening overview for "${keyword}"`);
+        for (let attempt = 1; attempt <= 2; attempt++) {
+          try {
+            await page.goto(wanted, { waitUntil: "domcontentloaded", timeout: 60000 });
+            break;
+          } catch (navErr) {
+            if (attempt === 2) throw navErr;
+            console.log("[Ahrefs SERP] overview load timed out, retrying once");
+          }
+        }
+        loadedPage = true;
+      } else {
+        console.log(`[Ahrefs SERP] already on the overview for "${keyword}", reading it`);
+      }
+      sourceUrl = page.url();
+
+      if (/limit-over/i.test(sourceUrl)) {
+        return res.json({ success: false, error: "RANKYTOOLS_LIMIT_OVER", message: "RankyTools daily credits are finished", url: sourceUrl, phase_status: "CREDITS_FINISHED" });
+      }
+      if (/\/login/i.test(sourceUrl)) {
+        return res.json({ success: false, error: "Session expired, call /login again", url: sourceUrl, phase_status: "SESSION_EXPIRED" });
+      }
+    }
+
+    // What the SERP widget shows right now:
+    //   "table"   = the SERP table is rendered
+    //   "missing" = Ahrefs says "SERP not found. Try updating. It will cost you one credit."
+    //   "loading" = neither yet
+    const serpState = () => target.evaluate(() => {
+      const hasTable = [...document.querySelectorAll("table")].some((t) => {
+        const head = String((t.querySelector("thead") || {}).textContent || "");
+        return /search result/i.test(head) && t.querySelectorAll("tbody tr").length > 0;
+      });
+      if (hasTable) return "table";
+      return /SERP not found/i.test(String(document.body ? document.body.innerText : "")) ? "missing" : "loading";
+    }).catch(() => "loading");
+
+    // The Ahrefs page scrolls inside an inner container, not the window, so scroll every scrollable element.
+    const scrollAll = (step) => target.evaluate((s) => {
+      window.scrollTo({ top: s * 700, behavior: "instant" });
+      [...document.querySelectorAll("*")]
+        .filter((e) => e.scrollHeight > e.clientHeight + 200 && /(auto|scroll)/.test(getComputedStyle(e).overflowY))
+        .forEach((e) => e.scrollTo({ top: s * 700, behavior: "instant" }));
+    }, step).catch(() => {});
+
+    // keepWaitingOnMissing: right after pressing Update the old "SERP not found" text can stay on screen
+    // until the new SERP is built, so in that case "missing" must not end the wait.
+    const waitForSerp = async (rounds, keepWaitingOnMissing = false) => {
+      let state = await serpState();
+      for (let i = 0; i < rounds && (state === "loading" || (keepWaitingOnMissing && state === "missing")); i++) {
+        await scrollAll(i);
+        await target.waitForTimeout(1500);
+        state = await serpState();
+      }
+      return state;
+    };
+
+    let state = await waitForSerp(12);
+    let refreshed = false;
+
+    let updateButtonFound = null;
+    if (state === "missing" && req.body?.refresh === true) {
+      // Costs ONE RankyTools/Ahrefs credit, so it only runs when the caller passes refresh: true.
+      // (In `html` mode the click only happens inside the saved page: no request, no credit.)
+      console.log(`[Ahrefs SERP] SERP not found for "${keyword}", pressing Update (1 credit)`);
+      updateButtonFound = await ahrefsPressUpdate(target);
+      if (updateButtonFound) {
+        refreshed = true;
+        await target.waitForTimeout(html ? 300 : 3000);
+        // generating a fresh SERP can take a while: wait up to ~60 seconds
+        state = await waitForSerp(html ? 6 : 40, true);
+      }
+    }
+
+    if (state === "missing") {
+      return res.json({
+        success: false,
+        error: "AHREFS_SERP_NOT_AVAILABLE",
+        message: "Ahrefs has no stored SERP for this keyword (\"SERP not found. Try updating. It will cost you one credit.\"). Send refresh:true to press Update (1 credit), or use another keyword spelling.",
+        canRefresh: true,
+        refreshed,
+        updateButtonFound,
+        keyword,
+        url: sourceUrl,
+        phase_status: "AHREFS_SERP_MISSING"
+      });
+    }
+    if (state === "table") await target.waitForTimeout(loadedPage ? 1500 : 300); // let the last rows finish rendering
+
+    const serp = await target.evaluate(ahrefsSerpExtract, { wantRedirects });
+    const results = serp.results.slice(0, maxResults);
+
+    const keywordMismatch = !html && serp.keywordOnPage && serp.keywordOnPage.toLowerCase() !== keyword.toLowerCase();
+    if (keywordMismatch) console.log(`[Ahrefs SERP] warning: page shows "${serp.keywordOnPage}" but "${keyword}" was requested`);
+
+    return res.json({
+      success: true,
+      keyword: keyword || serp.keywordOnPage,
+      source: "Ahrefs SERP overview",
+      url: sourceUrl,
+      serp: {
+        containerFound: serp.containerFound,
+        rowsFound: serp.rowsFound,
+        resultsFound: results.length,
+        results
+      },
+      features: serp.features,
+      headers: serp.headers,
+      pageTitle: serp.title,
+      keywordOnPage: serp.keywordOnPage,
+      keywordMismatch: !!keywordMismatch,
+      refreshed,
+      updateButtonFound,
+      durationMs: Date.now() - startedAt,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error("[Ahrefs SERP] error:", error);
+    return res.json({ success: false, error: error.message, phase_status: "AHREFS_SERP_FAILED", timestamp: new Date().toISOString() });
+  } finally {
+    if (tempBrowser) await tempBrowser.close().catch(() => {});
+  }
+});
 
 app.post("/navigate",async(req,res)=>{
 
@@ -1853,25 +2468,36 @@ app.post('/crop',
       const srcW = meta.width || 0;
       const srcH = meta.height || 0;
 
-      // Pick position
-      let position = 'attention';
-      if (strategy === 'attention') {
-        position = 'attention';
-      } else if (strategy === 'center') {
-        position = 'center';
-      } else if (strategy === 'face') {
-        position = 'top';
-      } else {
-        // auto: portrait-ish source → bias to top so the head is not cut off
-        if (srcH > srcW * 1.15) {
-          position = 'top';
-        } else {
-          position = 'attention';
+      // SMART strategy (default): a picture whose shape is close to the target is cropped a little.
+      // Any other shape (portrait, square, panorama) is NEVER cut: it is placed whole on a blurred copy of itself,
+      // so no face or subject is lost.
+      const srcRatio = srcW && srcH ? srcW / srcH : 1.78;
+      const dstRatio = w / h;
+      const loss = srcRatio > dstRatio ? 1 - dstRatio / srcRatio : 1 - srcRatio / dstRatio; // share of the picture that cover-crop removes
+      if (strategy === 'smart' || strategy === 'auto') {
+        if (loss > 0.2) {
+          const bg = await sharp(req.body).rotate()
+            .resize(w, h, { fit: 'cover', position: 'center' })
+            .blur(28).modulate({ brightness: 0.8 }).toBuffer();
+          const fg = await sharp(req.body).rotate()
+            .resize(w, h, { fit: 'inside', withoutEnlargement: false }).toBuffer();
+          const outFit = await sharp(bg)
+            .composite([{ input: fg, gravity: 'centre' }])
+            .sharpen({ sigma: 0.6 })
+            .jpeg({ quality: q, mozjpeg: true })
+            .toBuffer();
+          console.log(`[crop] src=${srcW}x${srcH} -> ${w}x${h} | smart: blur-fit (cover would lose ${Math.round(loss * 100)}%)`);
+          return res.set('Content-Type', 'image/jpeg').send(outFit);
         }
       }
 
+      // Pick position
+      let position = 'attention';
+      if (strategy === 'center') position = 'center';
+      else if (strategy === 'face') position = 'top';
+
       console.log(
-        `[crop] src=${srcW}x${srcH} → ${w}x${h} | strategy=${strategy} position=${position}`
+        `[crop] src=${srcW}x${srcH} → ${w}x${h} | strategy=${strategy} position=${position} loss=${Math.round(loss * 100)}%`
       );
 
       const out = await sharp(req.body)
@@ -2339,163 +2965,226 @@ app.post("/fetch", async (req, res) => {
 
 
 // POST /google-image
-// POST /google-image
-// Body: { "query": "imran khan portrait", "count": 5 }
-// Returns ONLY watermark-free images.
-// POST /google-image
-// Body: { "query": "imran khan portrait", "count": 5 }
+// Body: { "query": "imran khan portrait", "count": 5, "provider": "auto" | "ddg" | "bing" }
+// Image search without an API key. DuckDuckGo is tried first (3 attempts, because its
+// i.js endpoint intermittently answers 403 to bots), then Bing Images as the fallback.
+// Stock-photo CDNs (watermarked) are filtered out.
+const IMG_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36';
+const imgSleep = (ms) => new Promise((r) => setTimeout(r, ms));
+let lastDdgAt = 0;
+let ddgBlockedUntil = 0;
+
+async function ddgImageSearch(query) {
+  // keep a gap between DuckDuckGo requests: the workflow sends 4 queries back to back
+  const gap = 1500 - (Date.now() - lastDdgAt);
+  if (gap > 0) await imgSleep(gap);
+  lastDdgAt = Date.now();
+
+  const initRes = await fetch(
+    `https://duckduckgo.com/?q=${encodeURIComponent(query)}&iax=images&ia=images`,
+    { headers: { 'User-Agent': IMG_UA, 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8', 'Accept-Language': 'en-US,en;q=0.9' } }
+  );
+  if (!initRes.ok) throw new Error(`DDG init ${initRes.status}`);
+  const initHtml = await initRes.text();
+
+  let rawCookies = [];
+  try {
+    if (typeof initRes.headers.getSetCookie === 'function') rawCookies = initRes.headers.getSetCookie();
+  } catch (e) { /* ignore */ }
+  const cookieHeader = rawCookies.map((c) => String(c).split(';')[0]).filter(Boolean).join('; ');
+
+  let vqd = null;
+  for (const p of [/vqd=["']?([\d-]+)["']?/, /vqd=4-([\d-]+)/, /"vqd":\s*"([\d-]+)"/, /vqd%3D([\d-]+)/]) {
+    const m = initHtml.match(p);
+    if (m) { vqd = m[1]; break; }
+  }
+  if (!vqd) throw new Error('DDG_VQD_MISSING');
+
+  const headers = {
+    'User-Agent': IMG_UA,
+    'Accept': 'application/json, text/javascript, */*; q=0.01',
+    'Accept-Language': 'en-US,en;q=0.9',
+    'Referer': 'https://duckduckgo.com/',
+    'X-Requested-With': 'XMLHttpRequest',
+    'Sec-Fetch-Dest': 'empty',
+    'Sec-Fetch-Mode': 'cors',
+    'Sec-Fetch-Site': 'same-origin'
+  };
+  if (cookieHeader) headers['Cookie'] = cookieHeader;
+
+  const imgRes = await fetch(
+    `https://duckduckgo.com/i.js?l=us-en&o=json&q=${encodeURIComponent(query)}&vqd=${encodeURIComponent(vqd)}&f=,,,&p=1`,
+    { headers }
+  );
+  if (!imgRes.ok) throw new Error(`DDG i.js ${imgRes.status}`);
+  const data = await imgRes.json();
+  return (Array.isArray(data.results) ? data.results : [])
+    .filter((r) => r && r.image)
+    .map((r) => ({
+      url: r.image,
+      thumbnail: r.thumbnail || r.image,
+      downloadUrl: r.image,
+      width: Number(r.width) || 0,
+      height: Number(r.height) || 0,
+      title: r.title || '',
+      source: r.source || 'duckduckgo',
+      sourceUrl: r.url || '',
+      originalUrl: r.image,
+      alt: r.title || '',
+      description: r.title || ''
+    }));
+}
+
+/* Wikipedia / Wikimedia: free-licence pictures used in the matching Wikipedia articles (commons.wikimedia.org itself is blocked on some networks, en.wikipedia.org is not) */
+async function commonsImageSearch(query) {
+  const H = { headers: { 'User-Agent': 'BlogAutomationImageBot/1.0 (image search)', 'Accept': 'application/json' } };
+  const sres = await fetch('https://en.wikipedia.org/w/api.php?action=query&format=json&list=search&srlimit=2&srsearch=' + encodeURIComponent(query), H);
+  if (!sres.ok) throw new Error('Wikipedia search ' + sres.status);
+  const titles = (((await sres.json()).query || {}).search || []).map((x) => x.title).slice(0, 1);
+  let pages = [];
+  for (const t of titles) {
+    const res = await fetch('https://en.wikipedia.org/w/api.php?action=query&format=json&generator=images&gimlimit=40&prop=imageinfo&iiprop=url|size|mime|extmetadata&iiurlwidth=1600&titles=' + encodeURIComponent(t), H);
+    if (!res.ok) continue;
+    const data = await res.json();
+    pages = pages.concat(Object.values((data.query && data.query.pages) || {}).map((p) => ({ ...p, pageTitle: t })));
+  }
+  const strip = (s) => String(s || '').replace(/<[^>]+>/g, ' ').replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/\s+/g, ' ').trim();
+  return pages.map((p) => {
+    const ii = (p.imageinfo || [])[0];
+    if (!ii || !/^image\/(jpeg|png)$/.test(ii.mime || '')) return null;
+    const em = ii.extmetadata || {};
+    const license = strip(em.LicenseShortName && em.LicenseShortName.value);
+    if (!license || /non.?commercial|\bNC\b|fair use|non.?free|no.?derivs?|\bND\b/i.test(license)) return null; // not allowed on a monetised blog
+    const pd = /public domain|cc0|pd\b/i.test(license);
+    const author = strip(em.Artist && em.Artist.value).slice(0, 80);
+    const title = String(p.title || '').replace(/^File:/i, '').replace(/\.[a-z]{3,4}$/i, '').replace(/_/g, ' ');
+    const desc = strip(em.ImageDescription && em.ImageDescription.value).slice(0, 200);
+    return {
+      url: ii.thumburl || ii.url,
+      thumbnail: ii.thumburl || ii.url,
+      downloadUrl: ii.thumburl || ii.url,
+      width: Number(ii.thumbwidth || ii.width) || 0,
+      height: Number(ii.thumbheight || ii.height) || 0,
+      title: (p.pageTitle ? p.pageTitle + ': ' : '') + title + (desc ? ' ' + desc : ''),
+      source: 'wikimedia-commons',
+      sourceUrl: ii.descriptionurl || '',
+      originalUrl: ii.url,
+      alt: title,
+      description: desc || title,
+      license: license,
+      freeLicense: true,
+      publicDomain: pd,
+      attribution: pd ? '' : ('Image: ' + (author || 'Wikimedia Commons') + (license ? ', ' + license : ''))
+    };
+  }).filter(Boolean).filter((c) => c.width >= 900 && !/logo|icon|flag|map|symbol|signature|commons-|wiki|button|banner|poster/i.test(c.alt));
+}
+
+async function bingImageSearch(query) {
+  const res = await fetch(
+    `https://www.bing.com/images/search?q=${encodeURIComponent(query)}&form=HDRSC3&first=1`,
+    { headers: { 'User-Agent': IMG_UA, 'Accept-Language': 'en-US,en;q=0.9' } }
+  );
+  if (!res.ok) throw new Error(`Bing ${res.status}`);
+  const html = await res.text();
+  const out = [];
+  for (const m of html.matchAll(/<a[^>]*class="[^"]*\biusc\b[^"]*"[^>]*\sm="([^"]+)"/g)) {
+    try {
+      const j = JSON.parse(m[1].replace(/&quot;/g, '"').replace(/&amp;/g, '&').replace(/&#39;/g, "'"));
+      if (!j.murl) continue;
+      const title = String(j.t || '').replace(/[]/g, '').trim();
+      out.push({
+        url: j.murl,
+        thumbnail: j.turl || j.murl,
+        downloadUrl: j.murl,
+        width: 0,
+        height: 0,
+        title,
+        source: 'Bing',
+        sourceUrl: j.purl || '',
+        originalUrl: j.murl,
+        alt: title,
+        description: title
+      });
+    } catch (e) { /* skip one bad entry */ }
+  }
+  return out;
+}
+
 app.post('/google-image', async (req, res) => {
-  const { query, count = 5 } = req.body || {};
+  const { query, count = 8, provider = 'auto', subject = '' } = req.body || {};
   if (!query) return res.status(400).json({ error: 'query required' });
 
-  const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36';
-
   try {
-    // ---------- 1. Fetch DDG HTML page to get vqd + cookies ----------
-    const initRes = await fetch(
-      `https://duckduckgo.com/?q=${encodeURIComponent(query)}&iax=images&ia=images`,
-      {
-        headers: {
-          'User-Agent': UA,
-          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-          'Accept-Language': 'en-US,en;q=0.9'
+    const order = provider === 'bing' ? ['bing'] : provider === 'ddg' ? ['ddg'] : ['ddg', 'bing'];
+    const attemptLog = [];
+    let candidates = [];
+    let usedProvider = '';
+
+    for (const p of order) {
+      // After DuckDuckGo exhausted its attempts, skip it for 10 minutes and go straight to Bing
+      if (p === 'ddg' && provider === 'auto' && Date.now() < ddgBlockedUntil) {
+        attemptLog.push('ddg: skipped (cooling down after 403)');
+        continue;
+      }
+      const attempts = p === 'ddg' ? 2 : 2;
+      for (let a = 1; a <= attempts && !candidates.length; a++) {
+        try {
+          candidates = p === 'ddg' ? await ddgImageSearch(query) : await bingImageSearch(query);
+          if (candidates.length) usedProvider = p;
+          else attemptLog.push(`${p}#${a}: 0 results`);
+        } catch (e) {
+          attemptLog.push(`${p}#${a}: ${e.message}`);
+          if (a < attempts) await imgSleep(1500 * a);
         }
       }
-    );
-    if (!initRes.ok) throw new Error(`DDG init ${initRes.status}`);
-
-    const initHtml = await initRes.text();
-
-    // ---- capture cookies from Set-Cookie headers ----
-    // Node 20+ : initRes.headers.getSetCookie()
-    // Node 18  : initRes.headers.raw()['set-cookie']
-    let rawCookies = [];
-    try {
-      if (typeof initRes.headers.getSetCookie === 'function') {
-        rawCookies = initRes.headers.getSetCookie();
-      } else if (typeof initRes.headers.raw === 'function') {
-        rawCookies = initRes.headers.raw()['set-cookie'] || [];
-      }
-    } catch (e) { /* ignore */ }
-
-    // Reduce to "name=value; name2=value2"
-    const cookieHeader = rawCookies
-      .map(c => String(c).split(';')[0])
-      .filter(Boolean)
-      .join('; ');
-
-    console.log(`[image-search] cookies: ${cookieHeader.slice(0, 120)}...`);
-
-    // ---------- 2. Extract vqd (multiple patterns) ----------
-    let vqd = null;
-    for (const p of [
-      /vqd=["']?([\d-]+)["']?/,
-      /vqd=4-([\d-]+)/,
-      /"vqd":\s*"([\d-]+)"/,
-      /vqd%3D([\d-]+)/
-    ]) {
-      const m = initHtml.match(p);
-      if (m) { vqd = m[1]; break; }
-    }
-    if (!vqd) {
-      return res.json({
-        success: false, query, count: 0, images: [],
-        error: 'DDG_VQD_MISSING'
-      });
+      if (candidates.length) break;
+      if (p === 'ddg' && provider === 'auto') ddgBlockedUntil = Date.now() + 10 * 60 * 1000;
     }
 
-    // ---------- 3. Fetch image JSON (with cookies + matching UA) ----------
-    const apiUrl =
-      `https://duckduckgo.com/i.js?l=us-en&o=json&q=${encodeURIComponent(query)}` +
-      `&vqd=${encodeURIComponent(vqd)}&f=,,,&p=1`;
-
-    const apiHeaders = {
-      'User-Agent': UA,
-      'Accept': 'application/json, text/javascript, */*; q=0.01',
-      'Accept-Language': 'en-US,en;q=0.9',
-      'Referer': 'https://duckduckgo.com/',
-      'X-Requested-With': 'XMLHttpRequest',
-      'Sec-Fetch-Dest': 'empty',
-      'Sec-Fetch-Mode': 'cors',
-      'Sec-Fetch-Site': 'same-origin'
-    };
-    if (cookieHeader) apiHeaders['Cookie'] = cookieHeader;
-
-    const imgRes = await fetch(apiUrl, { headers: apiHeaders });
-
-    if (!imgRes.ok) {
-      const body = await imgRes.text().catch(() => '');
-      console.error(`[image-search] i.js ${imgRes.status} — body: ${body.slice(0, 200)}`);
-      return res.json({
-        success: false, query, count: 0, images: [],
-        error: `DDG i.js ${imgRes.status}`,
-        vqd
-      });
+    if (!candidates.length) {
+      console.error(`[image-search] no images for "${query}": ${attemptLog.join(' | ')}`);
+      try {
+        const onlyCommons = await commonsImageSearch(String(subject || query));
+        if (onlyCommons.length) return res.json({ success: true, query, commons: onlyCommons.length, provider: 'commons', count: onlyCommons.length, images: onlyCommons.slice(0, count), meta: { retries: attemptLog } });
+      } catch (e) { attemptLog.push('commons: ' + e.message); }
+      return res.json({ success: false, query, count: 0, images: [], error: attemptLog.join(' | ') });
     }
+    if (attemptLog.length) console.log(`[image-search] "${query}" ok via ${usedProvider} after: ${attemptLog.join(' | ')}`);
 
-    const data = await imgRes.json();
-    const results = Array.isArray(data.results) ? data.results : [];
-
-    // ---------- 4. Normalize ----------
-    const candidates = results
-      .filter(r => r && r.image)
-      .map(r => ({
-        url: r.image,
-        thumbnail: r.thumbnail || r.image,
-        downloadUrl: r.image,
-        width: Number(r.width) || 0,
-        height: Number(r.height) || 0,
-        title: r.title || '',
-        source: r.source || '',
-        sourceUrl: r.url || '',
-        originalUrl: r.image,
-        alt: r.title || '',
-        description: r.title || ''
-      }));
-
-    // ---------- 5. Layer 1: reject stock CDNs ----------
+    // Layer 1: reject stock CDNs (always watermarked)
     const stockHosts = [
       'gettyimages.com', 'istockphoto.com', 'shutterstock.com',
       'alamy.com', 'dreamstime.com', 'depositphotos.com',
       '123rf.com', 'stock.adobe.com', 'adobe.com/stock',
       'vectorstock.com', 'bigstockphoto.com', 'canstockphoto.com'
     ];
-    const layer1Clean = candidates.filter(c => {
+    const layer1Clean = candidates.filter((c) => {
       const u = (c.url || '').toLowerCase();
-      return !stockHosts.some(h => u.includes(h));
+      return !stockHosts.some((h) => u.includes(h));
     });
-
-    // ---------- 6. Layer 2: OCR (optional, only if you installed tesseract.js) ----------
-    // If OCR is not set up, just return layer1Clean.
-    let finalImages = layer1Clean.slice(0, count);
-
-    // If you have OCR helpers defined earlier in server.js, uncomment this:
-    /*
-    finalImages = [];
-    for (const cand of layer1Clean) {
-      if (finalImages.length >= count) break;
-      const check = await containsWatermarkText(cand.url);
-      if (!check.watermarked) finalImages.push(cand);
-    }
-    */
+    // Wikimedia Commons candidates come first (free licence); the workflow scores everything and picks the best
+    let commons = [];
+    try {
+      const generic = /\b(official|photo|photos|picture|recent|editorial|illustration|concept|tutorial|step by step|product|closeup|in use|box|speech)\b/gi;
+      const cq = String(query).replace(generic, ' ').replace(/\s+/g, ' ').trim();
+      commons = await commonsImageSearch(cq || query);
+      if (commons.length < 3 && subject && subject.toLowerCase() !== (cq || '').toLowerCase()) commons = commons.concat(await commonsImageSearch(subject));
+    } catch (e) { attemptLog.push('commons: ' + e.message); }
+    const seenUrls = new Set();
+    const finalImages = commons.concat(layer1Clean).filter((c) => { if (seenUrls.has(c.url)) return false; seenUrls.add(c.url); return true; }).slice(0, count + commons.length);
 
     return res.json({
       success: true,
       query,
+      commons: commons.length,
+      provider: usedProvider,
       count: finalImages.length,
       images: finalImages,
-      meta: {
-        candidates: candidates.length,
-        layer1Clean: layer1Clean.length,
-        durationMs: Date.now() - Date.now()
-      }
+      meta: { candidates: candidates.length, layer1Clean: layer1Clean.length, retries: attemptLog }
     });
-
   } catch (e) {
     console.error('[image-search] FATAL:', e);
-    return res.status(500).json({
-      success: false, query, count: 0, images: [], error: e.message
-    });
+    return res.status(500).json({ success: false, query, count: 0, images: [], error: e.message });
   }
 });
 

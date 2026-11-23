@@ -1,9 +1,11 @@
-{
+﻿{
   "name": "n8n-playwright-server",
   "version": "1.0.0",
   "private": true,
   "dependencies": {
     "express": "^4.21.2",
-    "playwright": "1.55.0"
+    "playwright": "1.55.0",
+    "sharp": "^0.34.3",
+    "tesseract.js": "^6.0.1"
   }
 }

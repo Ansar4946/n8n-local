@@ -1,0 +1,3204 @@
+{
+  "name": "SEO Blog Automation V7.3 — Google Images + Gemini FAQ + Quick Info",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "ba2a01a1-e1fb-4a2d-b704-71611e293ae4",
+      "name": "▶️ Start",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -4752,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 9,15 * * *"
+            }
+          ]
+        }
+      },
+      "id": "923c5b36-bd7b-4f82-bb2d-6db173d3578a",
+      "name": "⏰ Schedule (2 blogs per day)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -4752,
+        128
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{\n  json: {\n    min_volume: 100,\n    max_kd: 29,\n    article_min_words: 2500,\n    article_max_words: 3200,\n    title_min_chars: 50,\n    title_max_chars: 60,\n    meta_min_chars: 140,\n    meta_max_chars: 160,\n    h2_min: 5,\n    h2_max: 8,\n    faq_count: 6,\n    quick_info_count: 6,\n    qa_min_score: 85,\n    image_count: 4,\n    image_aspect: \"16:9\",\n    image_width: 1600,\n    image_height: 900,\n    image_jpeg_quality: 85,\n    strip_caption: true,\n    use_google_images: true,\n    google_image_results_per_query: 5,\n    image_blacklist_keywords: [\"logo\", \"icon\", \"sprite\", \"banner\", \"button\", \"flag-thumb\"],\n    internal_links_target: 3,\n    external_links_target: 2,\n    auto_publish_default: false,\n    auto_publish_mode: \"draft_only\",\n    default_target_country: \"United States\",\n    default_location_code: 2840,\n    default_language: \"English\",\n    default_language_code: \"en\",\n    gemini_planner_model: \"gemini-3.5-flash-lite\",\n    gemini_writer_model: \"gemini-3.5-flash-lite\",\n    gemini_critic_model: \"gemini-3.5-flash-lite\",\n    gemini_faq_model: \"gemini-3.5-flash-lite\",\n    gemini_image_model: \"imagen-3.0-generate-002\",\n    log_sheet_name: \"Published_Drafts\",\n    max_retries: 3,\n    niche: \"auto\", keyword_source: \"ahrefs\", min_secondary_keywords: 15, target_secondary_keywords: 15, max_secondary_keywords: 20, lsi_keyword_count: 12, phase: \"FULL_AI_SEO_BLOG_V7_3_AHREFS\"\n  }\n}];"
+      },
+      "id": "aabbe234-bb9c-4d05-bdcd-7bb3d7c6cbaf",
+      "name": "⚙️ Config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -4544,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1pJZ1IWoJ8js13NEzKJ3YOvoeEF7jbOV1Ghsyz9_t5Fs",
+          "mode": "list"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1629340647,
+          "mode": "list"
+        },
+        "options": {}
+      },
+      "id": "6212ada3-434b-4e95-bde1-861ae84f9491",
+      "name": "📊 Read BlogTopics",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        -4336,
+        304
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "4we9x6TPgRKR5VIc",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const cfg = $('⚙️ Config').first().json;\nconst rows = $input.all().map(i => i.json).filter(r => r && Object.keys(r).length);\nconst row = rows.find(r => String(r.status || '').trim().toUpperCase() === 'READY');\nif (!row) return [{ json: { ...cfg, topic_found: false, phase_status: 'NO_READY_TOPIC' } }];\nconst topic = String(row.title || row.topic || '').trim();\nconst seedKeyword = String(row.keyword || '').replace(/\\s+/g, ' ').trim() || topic;\nif (!topic) return [{ json: { ...cfg, ...row, topic_found: false, phase_status: 'INVALID_TOPIC' } }];\nconst site = String(row.site_url || '').replace(/\\/+$/, '');\nconst autoPublish = String(row.auto_publish || '').toLowerCase() === 'yes' || row.auto_publish === true;\nreturn [{ json: { ...cfg, ...row, topic_found: true, topic, title: topic, keyword: seedKeyword, site_url: site, target_country: row.target_country || cfg.default_target_country, location_code: Number(row.target_location_code || cfg.default_location_code), language: row.language || cfg.default_language, language_code: row.language_code || cfg.default_language_code, auto_publish_requested: autoPublish, existing_wp_post_id: row.wp_post_id || null, fact_repair_round: 0, qa_repair_round: 0, started_at: new Date().toISOString(), phase_status: 'TOPIC_SELECTED' } }];"
+      },
+      "id": "d3657c5e-0bf0-4895-a3d5-c4f404abab18",
+      "name": "🎯 Select READY Topic",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -4128,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c1",
+              "leftValue": "={{ $json.topic_found }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "7ee69e7e-5035-4e8e-8de4-e99511005df7",
+      "name": "❓ Topic Found?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -3904,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { ...$json, stopped: true, phase_status: 'STOPPED_NO_TOPIC' } }];"
+      },
+      "id": "28c4186e-508b-4ecf-865f-ca0da09d373e",
+      "name": "🛑 Stop — No Topic",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -3728,
+        128
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "1pJZ1IWoJ8js13NEzKJ3YOvoeEF7jbOV1Ghsyz9_t5Fs",
+          "mode": "list"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "BlogTopics"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "status": "PROCESSING",
+            "attempt_count": "={{ Number($json.attempt_count || 0) + 1 }}",
+            "last_stage": "TOPIC_CLAIMED",
+            "last_execution_id": "={{ $execution.id }}",
+            "updated_at": "={{ $now.toISO() }}",
+            "topic_id": "={{ $json.topic_id }}",
+            "row_number": 0
+          },
+          "matchingColumns": [
+            "topic_id"
+          ],
+          "schema": [
+            {
+              "id": "topic_id",
+              "displayName": "topic_id",
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "type": "string"
+            },
+            {
+              "id": "attempt_count",
+              "displayName": "attempt_count",
+              "type": "string"
+            },
+            {
+              "id": "last_stage",
+              "displayName": "last_stage",
+              "type": "string"
+            },
+            {
+              "id": "last_execution_id",
+              "displayName": "last_execution_id",
+              "type": "string"
+            },
+            {
+              "id": "updated_at",
+              "displayName": "updated_at",
+              "type": "string"
+            },
+            {
+              "id": "row_number",
+              "displayName": "row_number",
+              "type": "number",
+              "readOnly": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "45ebcad0-d803-4620-8076-fd9efe89e394",
+      "name": "📊 Mark PROCESSING",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        -3728,
+        448
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "4we9x6TPgRKR5VIc",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const original = $('🎯 Select READY Topic').first().json;\nreturn [{ json: { ...original, ...$json, status: 'PROCESSING' } }];"
+      },
+      "id": "696e10e0-5331-41a6-931c-0ca36c24c51c",
+      "name": "♻️ Restore Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -3520,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "url": "http://playwright:3000/health",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          },
+          "timeout": 10000
+        }
+      },
+      "id": "85fba29c-6323-4940-a787-900fef8b2949",
+      "name": "🌐 PW Health",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        -3312,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://playwright:3000/login",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\"loginUrl\": \"https://member.rankytools.com/login\"}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          },
+          "timeout": 120000
+        }
+      },
+      "id": "b0bb3f5d-8685-463c-9214-70df2fa54b0c",
+      "name": "🔐 PW Login",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        -3120,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "url": "http://playwright:3000/tools",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "id": "2420adbe-49bd-4cbe-a14a-eb7be10d7dfb",
+      "name": "🧰 PW List Tools",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        -2912,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const tools = $json.tools || [];\nreturn tools.filter(t => /ahrefs|keyword explorer|keyword/i.test(String(t.text || '') + ' ' + String(t.url || ''))).map(t => ({ json: { name: t.text, url: t.url } }));"
+      },
+      "id": "fc363d8c-d55b-4f2c-b8da-e8afb2b500b6",
+      "name": "🔍 Find Keyword Tool",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2720,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const ctx = $('♻️ Restore Context').first().json;\nreturn [{ json: { ...ctx, name: 'Ahrefs', url: $json.url, keyword: ctx.keyword || ctx.topic } }];"
+      },
+      "id": "8bdcc83c-be1d-46ce-81f4-d29de017c5b3",
+      "name": "📝 Prep Open Tool",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2512,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://playwright:3000/open-tool",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"url\": \"{{$json.url}}\"}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          },
+          "timeout": 60000
+        }
+      },
+      "id": "73b7f557-4b3a-4b0b-80b7-629904fa73b4",
+      "name": "🚪 PW Open Tool",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        -2320,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://playwright:3000/ahrefs-search",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"keyword\": \"{{ $(\"♻️ Restore Context\").first().json.keyword }}\"}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          },
+          "timeout": 180000
+        }
+      },
+      "id": "faf39731-b0b6-4949-bd71-421a52ead632",
+      "name": "Ahrefs Search",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        -2112,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://playwright:3000/ahrefs-keyword-data",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ keyword: $(\"♻️ Restore Context\").first().json.keyword, maxKd: $(\"⚙️ Config\").first().json.max_kd, minVolume: $(\"⚙️ Config\").first().json.min_volume, intent: \"I\", minNeeded: Number($(\"⚙️ Config\").first().json.target_secondary_keywords || 15) + 5 }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          },
+          "timeout": 360000
+        }
+      },
+      "id": "c4c144cd-dfa9-46e2-bfeb-6a08bba9401d",
+      "name": "Ahrefs Keyword Data",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        -1920,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "ahrefs-credit-check",
+              "leftValue": "={{ /limit-over|credit limit reached|out of credits|need more credits/i.test(JSON.stringify($json)) || Number($json.count || 0) < (Number($(\"⚙️ Config\").first().json.min_secondary_keywords || 15) + 1) ? 'exhausted' : 'available' }}",
+              "rightValue": "available",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "b7b6a0b3-6a2b-4f86-9f7f-3fcb1e6f4a12",
+      "name": "❓ Ahrefs Credits Available?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -1808,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://playwright:3000/keyword-data",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ keyword: $(\"♻️ Restore Context\").first().json.keyword, minVolume: $(\"⚙️ Config\").first().json.min_volume, maxKd: $(\"⚙️ Config\").first().json.max_kd, maxRows: 500 }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          },
+          "timeout": 360000
+        }
+      },
+      "id": "f4c7634e-7c7c-4d50-9cf5-0aa6a2b55e81",
+      "name": "📈 SEMrush Keyword Data (Credit Fallback)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        -1584,
+        448
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json || {};\nconst maxKd = Number($(\"⚙️ Config\").first().json.max_kd || 30);\nconst rows = Array.isArray(input.keywords) ? input.keywords : [];\nconst seen = new Set();\nconst keywords = rows.filter(row => { const keyword = String(row.keyword || '').trim(); const kdRaw = String(row.kd || ''); const kd = /\\d/.test(kdRaw) ? Number(kdRaw.replace(/[^0-9.]/g, '')) : null; const key = keyword.toLowerCase(); if (!keyword || /[,@()]/.test(keyword) || (kd !== null && kd > maxKd) || seen.has(key)) return false; seen.add(key); return true; }).map(row => ({ ...row, keyword: String(row.keyword).trim(), kd: String(row.kd).trim() }));\nconst keywordSource = String(input.source || input.keyword_source || 'semrush').toLowerCase();\nreturn [{ json: { ...input, count: keywords.length, keywords, keyword_source: keywordSource, phase_status: keywords.length ? keywordSource.toUpperCase() + '_KEYWORDS_READY' : keywordSource.toUpperCase() + '_NO_KEYWORDS' } }];"
+      },
+      "id": "bc1b06f8-b6b9-460a-bb01-72e5068cdef4",
+      "name": "kd filter",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1696,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "modelName": "models/gemini-3.5-flash-lite",
+        "options": {
+          "temperature": 0.1,
+          "maxOutputTokens": 8192
+        }
+      },
+      "id": "072c4737-fd01-40b0-bf36-06be04c3187f",
+      "name": "Google Gemini Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1.1,
+      "position": [
+        -1536,
+        496
+      ],
+      "credentials": {
+        "googlePalmApi": {
+          "id": "GvSjxUdeMTBIbAH9",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "schemaType": "manual",
+        "inputSchema": "{\n  \"type\": \"object\",\n  \"properties\": {\n    \"primary_keyword\": {\n      \"type\": \"string\"\n    },\n    \"primary_volume\": {\n      \"type\": \"string\"\n    },\n    \"primary_kd\": {\n      \"type\": \"string\"\n    },\n    \"secondary_keywords\": {\n      \"type\": \"array\",\n      \"items\": {\n        \"type\": \"object\",\n        \"properties\": {\n          \"keyword\": {\n            \"type\": \"string\"\n          },\n          \"volume\": {\n            \"type\": \"string\"\n          },\n          \"kd\": {\n            \"type\": \"string\"\n          }\n        }\n      }\n    },\n    \"reasoning\": {\n      \"type\": \"string\"\n    },\n    \"lsi_keywords\": {\n      \"type\": \"array\",\n      \"items\": {\n        \"type\": \"string\"\n      }\n    },\n    \"niche_alignment\": {\n      \"type\": \"string\"\n    }\n  },\n  \"required\": [\n    \"primary_keyword\",\n    \"secondary_keywords\"\n  ]\n}"
+      },
+      "id": "24402ff5-252a-45d2-99b1-840330e0f03d",
+      "name": "Structured Output Parser",
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        -1392,
+        512
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You are an expert SEO Strategist. I will provide you with a JSON list of filtered keywords for a seed topic.\n\nYour task is to select ONE \"Primary Keyword\" for a blog post using a STRICT DATA-DRIVEN RULE.\n\nCRITICAL RULES for the Primary Keyword:\n- The BLOG TITLE and SEED KEYWORD are the authoritative topic signals. Choose keywords that directly match the title and its direction, with informational intent (a reader who wants to learn, understand or solve something). Skip navigational/brand/job/login/pricing-only/unrelated keywords.\n- Among the relevant keywords, prefer the highest search volume, with the lowest KD as the tiebreaker.\n- The keyword MUST have KD <= 29.\n- Question-style keywords (starting with \"what\", \"how\", \"why\", \"which\", \"when\", \"where\", \"who\") ARE ALLOWED as primary.\n- Do NOT substitute a keyword that is not in the provided list.\n- The configured niche is contextual guidance for the article, not a rejection gate. Do not reject a keyword merely because the niche label does not repeat the title words. If the exact seed keyword or a close variant appears in the list and matches the BLOG TITLE, select it. Return an empty primary_keyword only when no candidate shares meaningful terms with the title or seed keyword.\n\nThen select up to 20 secondary keywords (15 to 20, and NEVER fewer than 15 when the list has that many). Every secondary keyword must be relevant to the BLOG TITLE, never a loosely related topic from the source list, when available. They must be distinct, topically useful, and have KD <= 29. Also derive 8 to 12 LSI/context terms that are semantically related to the topic; LSI terms may be phrases without a volume metric.\n\nRespond ONLY with a JSON object in this exact format. No markdown.\n{\n  \"primary_keyword\": \"the chosen primary keyword\",\n  \"primary_volume\": \"volume\",\n  \"primary_kd\": \"kd\",\n  \"secondary_keywords\": [\n    { \"keyword\": \"secondary keyword 1\", \"volume\": \"volume\", \"kd\": \"kd\" }\n  ],\n  \"lsi_keywords\": [\"semantic term 1\", \"semantic term 2\"],\n  \"reasoning\": \"A short explanation of why you chose this primary keyword.\",\n  \"niche_alignment\": \"How this keyword fits the blog title\"\n}\n\nThe niche is decided by the BLOG TITLE (it can be a biography, digital marketing, technology or anything else); never use a fixed niche to override a clear title and seed-keyword match.\n\nBLOG TITLE (this defines the direction of the article; the keyword must fit it): {{ $('♻️ Restore Context').first().json.title }}\nSEED KEYWORD searched: {{ $('♻️ Restore Context').first().json.keyword }}\n\nHere is the JSON list of keywords:\n{{ JSON.stringify($json.keywords) }}",
+        "hasOutputParser": true,
+        "batching": {}
+      },
+      "id": "34ad4625-e5f5-4d05-8fe0-998622bf3a1e",
+      "name": "Select Primary Keyword",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.9,
+      "position": [
+        -1536,
+        304
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 4000
+    },
+    {
+      "parameters": {
+        "jsCode": "let parsed = $json.output;\nif (typeof parsed === 'string') { const cleaned = parsed.replace(/```json|```/g, '').trim(); try { parsed = JSON.parse(cleaned); } catch (e) { return [{ json: { approved: false, reason: 'Invalid JSON from Gemini', raw: parsed } }]; } }\nif (!parsed || typeof parsed !== 'object') return [{ json: { approved: false, reason: 'Gemini output is not an object', raw: $json } }];\nconst maxKdCfg = Number($(\"⚙️ Config\").first().json.max_kd || 29);\nconst normalize = s => String(s || '').toLowerCase().replace(/[^\\w\\s]/g, '').replace(/\\s+/g, ' ').trim();\nconst source = $('kd filter').first().json || {}; const sourceItems = Array.isArray(source.keywords) ? source.keywords : [];\nconst sourceName = String(source.keyword_source || source.source || 'semrush').toLowerCase();\nif (!sourceItems.length) return [{ json: { approved: false, reason: sourceName + ' returned no usable keywords' } }];\nconst map = new Map(sourceItems.map(k => [normalize(k.keyword), k])); const primary = map.get(normalize(parsed.primary_keyword));\nif (!primary || Number(primary.kd) > maxKdCfg) return [{ json: { approved: false, reason: 'Primary keyword is not a valid ' + sourceName + ' keyword', parsed } }];\nconst secondary = []; const used = new Set([normalize(primary.keyword)]);\nfor (const item of (Array.isArray(parsed.secondary_keywords) ? parsed.secondary_keywords : [])) { const k = map.get(normalize(typeof item === 'string' ? item : item.keyword)); if (k && (!/\\d/.test(String(k.kd || '')) || Number(k.kd) <= maxKdCfg) && !used.has(normalize(k.keyword))) { used.add(normalize(k.keyword)); secondary.push({ keyword: k.keyword, volume: k.volume || '', kd: k.kd || '' }); } if (secondary.length >= 20) break; }\nconst lsi = [...new Set((Array.isArray(parsed.lsi_keywords) ? parsed.lsi_keywords : []).map(x => String(x).trim()).filter(Boolean))].slice(0, 12);\nconst minSecondary = Number($(\"⚙️ Config\").first().json.min_secondary_keywords || 15); if (secondary.length < minSecondary) return [{ json: { approved: false, reason: 'Fewer than ' + minSecondary + ' secondary keywords', available_secondary: secondary.length, parsed } }];\nreturn [{ json: { approved: true, primary_keyword: primary.keyword, primary_volume: primary.volume || '', primary_kd: primary.kd || '', secondary_keywords: secondary, lsi_keywords: lsi, niche: ($('♻️ Restore Context').first().json.niche || 'auto'), keyword_source: sourceName, reasoning: parsed.reasoning || '', niche_alignment: parsed.niche_alignment || '', phase_status: 'KEYWORD_APPROVED' } }];"
+      },
+      "id": "65469577-95a2-4b6e-b902-8afe49c25f6b",
+      "name": "Parse & Validate JSON",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1168,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "k1",
+              "leftValue": "={{ $json.approved }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "c2bf0351-636e-4150-b1e4-6688f3998cde",
+      "name": "❓ Keyword Approved?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -992,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "1pJZ1IWoJ8js13NEzKJ3YOvoeEF7jbOV1Ghsyz9_t5Fs",
+          "mode": "list"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "BlogTopics"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "status": "KEYWORD_FAILED",
+            "last_stage": "KEYWORD_SELECTION",
+            "last_error": "={{ $json.last_error }}",
+            "updated_at": "={{ $now.toISO() }}",
+            "topic_id": "={{ $json.topic_id }}",
+            "row_number": 0
+          },
+          "matchingColumns": [
+            "topic_id"
+          ],
+          "schema": [
+            {
+              "id": "topic_id",
+              "displayName": "topic_id",
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "type": "string"
+            },
+            {
+              "id": "last_stage",
+              "displayName": "last_stage",
+              "type": "string"
+            },
+            {
+              "id": "last_error",
+              "displayName": "last_error",
+              "type": "string"
+            },
+            {
+              "id": "updated_at",
+              "displayName": "updated_at",
+              "type": "string"
+            },
+            {
+              "id": "row_number",
+              "displayName": "row_number",
+              "type": "number",
+              "readOnly": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "e63957b2-f191-4fb4-a099-9385b6a08b28",
+      "name": "📊 Mark KEYWORD_FAILED",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        0,
+        -32
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "4we9x6TPgRKR5VIc",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://playwright:3000/serp-data",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\"keyword\": \"{{$json.primary_keyword}}\"}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          },
+          "timeout": 180000
+        }
+      },
+      "id": "5e2b1ea7-ed91-4b04-8706-eca5140855a8",
+      "name": "📊 SEMrush SERP",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        -16,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const ctx = $json;\nconst serp = ctx.serp || {};\nconst resultsFound = Number(serp.resultsFound || 0);\nconst containerFound = Boolean(serp.containerFound);\nif (!containerFound || resultsFound < 3) { throw new Error(`SERP scraping failed: containerFound=${containerFound} resultsFound=${resultsFound}.`); }\nreturn [{ json: ctx }];"
+      },
+      "id": "24d81515-c5fa-4ac4-a1e4-8ce0d72f7a6b",
+      "name": "✅ Validate SERP",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        192,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $json || {};\nlet baseCtx = {};\ntry { baseCtx = $('♻️ Restore Context').first().json || {}; } catch (e) { try { baseCtx = $('🎯 Select READY Topic').first().json || {}; } catch (e2) {} }\nlet keyword = '';\nif (!keyword) { try { const approved = $('Parse & Validate JSON').first().json; if (approved && approved.approved) keyword = String(approved.primary_keyword || '').trim(); } catch (e) {} }\nif (!keyword) { try { const gemini = $('📥 Parse Gemini Fallback').first().json; if (gemini && gemini.keyword_status === 'Approved') { keyword = String(gemini.keyword || gemini.primary_keyword || '').trim(); } } catch (e) {} }\nif (!keyword) keyword = String(baseCtx.keyword || baseCtx.primary_keyword || '').trim();\nif (!keyword && raw.keyword) keyword = String(raw.keyword).trim();\nlet primaryVolume = '';\nlet primaryKd = '';\nlet secondaryKeywords = [];\nlet lsiKeywords = [];\ntry { const approved = $('Parse & Validate JSON').first().json; if (approved && approved.approved) { primaryVolume = approved.primary_volume || ''; primaryKd = approved.primary_kd || ''; secondaryKeywords = approved.secondary_keywords || []; lsiKeywords = approved.lsi_keywords || []; } } catch (e) {}\nif (!primaryVolume) { try { const gemini = $('📥 Parse Gemini Fallback').first().json; if (gemini && gemini.keyword_status === 'Approved') { secondaryKeywords = gemini.secondary_keywords || []; } } catch (e) {} }\nconst serp = raw.serp || raw;\nconst results = serp.results || serp.items || [];\nconst competitors = results.filter(c => c && c.url).slice(0, 10).map((c, i) => {\n  let domain = c.domain || '';\n  if (!domain && c.url) { try { domain = new URL(c.url).hostname.replace(/^www\\./, ''); } catch (e) { domain = ''; } }\n  return { position: c.position || i + 1, domain, url: c.url, title: c.title || '', description: c.description || c.snippet || '', pageAS: c.pageAS || c.page_as || 0, refDomains: c.refDomains || c.ref_domains || 0, backlinks: c.backlinks || 0, traffic: c.traffic || 0, urlKeywords: c.keywords || c.urlKeywords || 0 };\n});\nreturn [{ json: { ...baseCtx, keyword, primary_keyword: keyword, primary_volume: primaryVolume || baseCtx.primary_volume || '', primary_kd: primaryKd || baseCtx.primary_kd || '', lsi_keywords: lsiKeywords.length ? lsiKeywords : (baseCtx.lsi_keywords || []), secondary_keywords: secondaryKeywords.length ? secondaryKeywords : (baseCtx.secondary_keywords || []), serp_competitors: competitors, competitor_count: competitors.length, phase_status: 'SERP_READY' } }];"
+      },
+      "id": "c4d76db0-21ac-49e9-8df4-e177f69b505e",
+      "name": "🎯 Prep SERP Competitors",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        400,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $json;\nreturn (input.serp_competitors || []).map(c => ({ json: { ...input, ...c, _competitor_url: c.url } }));"
+      },
+      "id": "a0830dfc-e60c-472c-8309-1500ff8e4d8c",
+      "name": "🔀 Split Competitors",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        608,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://playwright:3000/fetch",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"url\": \"{{$json._competitor_url}}\",\n  \"waitUntil\": \"domcontentloaded\",\n  \"timeout\": 30000\n}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true,
+              "responseFormat": "text"
+            }
+          },
+          "timeout": 60000
+        }
+      },
+      "id": "8b5d4f6a-9c8e-40d6-a761-3cea6074191a",
+      "name": "🌐 Fetch Competitor (PW)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        800,
+        304
+      ],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 3000
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst split = $('🔀 Split Competitors').all();\nfunction stripTags(html) { return String(html || '').replace(/<script[\\s\\S]*?<\\/script>/gi, ' ').replace(/<style[\\s\\S]*?<\\/style>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/gi, ' ').replace(/&amp;/gi, '&').replace(/\\s+/g, ' ').trim(); }\nreturn items.map((item, index) => {\n  const meta = split[index]?.json || {};\n  const j = item.json || {};\n  const html = typeof j === 'string' ? j : (j.data || j.html || j.body || '');\n  const usable = String(html).length > 500 && /<html|<body|<title|<h1/i.test(html);\n  const titleMatch = String(html).match(/<title[^>]*>([\\s\\S]*?)<\\/title>/i);\n  const metaDescMatch = String(html).match(/<meta[^>]+name=[\"']description[\"'][^>]+content=[\"']([^\"']+)[\"']/i);\n  const h1 = [...String(html).matchAll(/<h1\\b[^>]*>([\\s\\S]*?)<\\/h1>/gi)].map(m => stripTags(m[1])).filter(Boolean);\n  const h2 = [...String(html).matchAll(/<h2\\b[^>]*>([\\s\\S]*?)<\\/h2>/gi)].map(m => stripTags(m[1])).filter(Boolean);\n  const h3 = [...String(html).matchAll(/<h3\\b[^>]*>([\\s\\S]*?)<\\/h3>/gi)].map(m => stripTags(m[1])).filter(Boolean);\n  let mainHtml = (String(html).match(/<main\\b[^>]*>([\\s\\S]*?)<\\/main>/i) || [])[1] || (String(html).match(/<article\\b[^>]*>([\\s\\S]*?)<\\/article>/i) || [])[1] || html;\n  const mainText = stripTags(mainHtml);\n  const wordCount = mainText.split(/\\s+/).filter(Boolean).length;\n  return { json: { competitorIndex: index + 1, keyword: meta.keyword || '', position: meta.position ?? null, domain: meta.domain || '', url: meta.url || meta._competitor_url || '', pageAS: meta.pageAS || 0, refDomains: meta.refDomains || 0, backlinks: meta.backlinks || 0, traffic: meta.traffic || 0, urlKeywords: meta.urlKeywords || 0, fetchStatus: usable ? 'ok' : 'blocked', usable, seo: { title: titleMatch ? stripTags(titleMatch[1]) : '', titleLength: titleMatch ? stripTags(titleMatch[1]).length : 0, metaDescription: metaDescMatch ? stripTags(metaDescMatch[1]) : '', metaDescriptionLength: metaDescMatch ? stripTags(metaDescMatch[1]).length : 0, h1, h2, h3, h1Count: h1.length, h2Count: h2.length, h3Count: h3.length, wordCount }, extractedText: mainText.slice(0, 20000) } };\n});"
+      },
+      "id": "9196dd75-2784-4130-8856-67f12bc9969c",
+      "name": "🧩 Parse Competitors",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1008,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst usable = items.filter(i => i.json.usable);\nconst all = items.map(i => i.json);\nconst stats = usable.length ? usable : items;\nconst wordCounts = stats.map(i => i.json.seo?.wordCount || 0).filter(n => n > 0);\nconst avgWords = wordCounts.length ? Math.round(wordCounts.reduce((a,b) => a+b, 0) / wordCounts.length) : 1500;\nconst allH2 = []; const allH3 = [];\nfor (const it of stats) { allH2.push(...(it.json.seo?.h2 || [])); allH3.push(...(it.json.seo?.h3 || [])); }\nconst freq = (arr) => {\n  const m = new Map();\n  for (const x of arr) { const k = String(x || '').toLowerCase().trim(); if (!k) continue; m.set(k, (m.get(k) || 0) + 1); }\n  return [...m.entries()].sort((a,b) => b[1] - a[1]).slice(0, 30).map(([topic, count]) => ({ topic, count }));\n};\nconst ctx = $('🎯 Prep SERP Competitors').first().json;\nreturn [{ json: { ...ctx, competitor_stats: { total: all.length, usable: usable.length, avg_word_count: avgWords, min_word_count: wordCounts.length ? Math.min(...wordCounts) : 0, max_word_count: wordCounts.length ? Math.max(...wordCounts) : 0 }, common_h2: freq(allH2), common_h3: freq(allH3), competitors: all, phase_status: 'COMPETITORS_ANALYZED' } }];"
+      },
+      "id": "0131b897-1847-4c4f-a384-3394c9e34d38",
+      "name": "📊 Analyze SERP",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1216,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const ctx = $json;\nconst site_url = String(ctx.site_url || '').replace(/\\/+$/, '');\nconst topic_id = ctx.topic_id || '';\nconst kw = String(ctx.keyword || ctx.primary_keyword || '').trim();\nif (!site_url) throw new Error('site_url missing');\nif (!kw) throw new Error('keyword missing');\nreturn [{ json: { ...ctx, site_url, topic_id, keyword: kw, primary_keyword: kw, phase_status: 'READY_FOR_GEMINI_FAQ' } }];"
+      },
+      "id": "777b90f6-4814-45f1-bcb9-79e0a4d5099f",
+      "name": "🧩 Prep Gemini FAQ",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1424,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "modelName": "models/gemini-3.5-flash-lite",
+        "options": {
+          "temperature": 0.3,
+          "maxOutputTokens": 8192
+        }
+      },
+      "id": "d2654619-5d33-4f92-8456-431ee4062b8b",
+      "name": "🤖 Gemini FAQ Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1.1,
+      "position": [
+        1584,
+        496
+      ],
+      "credentials": {
+        "googlePalmApi": {
+          "id": "GvSjxUdeMTBIbAH9",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You are an FAQ generator for an SEO blog post.\n\nTOPIC: {{ $json.keyword }}\nSEARCH INTENT: {{ $json.search_intent || 'informational' }}\nRESEARCH (the ONLY source of facts and numbers for your answers):\n{{ JSON.stringify((($('📊 Analyze SERP').first().json.competitors) || []).filter(c => c.usable).slice(0, 4).map(c => ({ domain: c.domain, text: String(c.extractedText || '').replace(/\\s+/g, ' ').slice(0, 3500) })), null, 2) }}\n\nCOMPETITOR H2s (use as context for what readers care about):\n{{ JSON.stringify(($json.common_h2 || []).slice(0, 10).map(x => x.topic), null, 2) }}\n\nYOUR TASK:\nGenerate exactly {{ $('⚙️ Config').first().json.faq_count || 6 }} high-quality FAQ questions AND answers for this topic.\n\nRULES:\n- Never use em or en dashes (— or –). Keep sentences short and use commas sparingly.\n- Questions must be phrased as real search queries (e.g., \"What is X?\", \"Why did X happen?\", \"How does X work?\", \"Is X still alive?\")\n- Answers must be 2-3 sentences, factual, specific, and include dates/names/numbers when possible.\n- Do NOT use vague filler like \"It is important to note...\" or \"In today's world...\"\n- Every number, date, name and amount in an answer MUST come from the RESEARCH above, copied exactly (write money as $40 million, not as words). Never use numbers from memory.\n- If the RESEARCH does not support an answer, skip that question and write a different one the research can answer.\n- Answers must agree with each other and with the main article (same net worth, same figures).\n\nOUTPUT — return ONLY this JSON (no markdown):\n{\n  \"faqs\": [\n    { \"question\": \"What is ...?\", \"answer\": \"...\" },\n    { \"question\": \"Why ...?\", \"answer\": \"...\" }\n  ]\n}",
+        "batching": {}
+      },
+      "id": "bc7a33b8-477e-45ca-b278-c79b88a7b9b4",
+      "name": "🤖 Generate FAQs",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.9,
+      "position": [
+        1632,
+        304
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 4000
+    },
+    {
+      "parameters": {
+        "jsCode": "const ctx = $('🧩 Prep Gemini FAQ').first().json;\nconst raw = $json || {};\n\nlet text = '';\nif (typeof raw.text === 'string') text = raw.text;\nelse if (typeof raw.output === 'string') text = raw.output;\nelse if (raw.output && typeof raw.output === 'object') {\n  const obj = raw.output;\n  const faqs = Array.isArray(obj.faqs) ? obj.faqs : [];\n  return [{ json: { ...ctx, reddit_faqs: faqs.map((f, i) => ({ order: i + 1, question: String(f.question || '').trim(), answer: String(f.answer || '').trim(), source: 'gemini', source_url: '' })).filter(f => f.question && f.answer), faq_source: 'gemini', phase_status: 'GEMINI_FAQS_READY' } }];\n}\n\nif (!text) return [{ json: { ...ctx, reddit_faqs: [], faq_source: 'gemini_failed', faq_error: 'no text output', phase_status: 'GEMINI_FAQS_EMPTY' } }];\n\ntext = String(text).trim().replace(/^```(?:json)?\\s*/i, '').replace(/\\s*```$/i, '').trim();\n\nlet parsed = null;\ntry { parsed = JSON.parse(text); }\ncatch (e) {\n  const a = text.indexOf('{'); const b = text.lastIndexOf('}');\n  if (a >= 0 && b > a) { try { parsed = JSON.parse(text.slice(a, b + 1)); } catch (e2) {} }\n}\n\nif (!parsed || !Array.isArray(parsed.faqs)) {\n  return [{ json: { ...ctx, reddit_faqs: [], faq_source: 'gemini_failed', faq_error: 'invalid JSON', raw: text.slice(0, 500), phase_status: 'GEMINI_FAQS_EMPTY' } }];\n}\n\nconst faqs = parsed.faqs.map((f, i) => ({\n  order: i + 1,\n  question: String(f.question || '').trim(),\n  answer: String(f.answer || '').trim(),\n  source: 'gemini',\n  source_url: ''\n})).filter(f => f.question && f.answer);\n\nreturn [{ json: { ...ctx, reddit_faqs: faqs, reddit_faq_count: faqs.length, faq_source: 'gemini', phase_status: faqs.length ? 'GEMINI_FAQS_READY' : 'GEMINI_FAQS_EMPTY' } }];"
+      },
+      "id": "47cd6d23-6a87-4b08-9159-dd4c6e66a5a2",
+      "name": "📥 Parse Gemini FAQs",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2080,
+        368
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const ctx = $json;\nconst saved = $('♻️ Restore Context').first().json;\nconst site_url = String(ctx.site_url || saved.site_url || '').replace(/\\/+$/, '');\nconst topic_id = ctx.topic_id || saved.topic_id || '';\nconst kw = String(ctx.keyword || saved.keyword || saved.primary_keyword || '').trim();\nif (!site_url) throw new Error('site_url missing');\nif (!kw) throw new Error('keyword missing');\nconst geminiFaqs = Array.isArray(ctx.reddit_faqs) ? ctx.reddit_faqs : [];\nlet faqPlan = geminiFaqs.map(f => f.question);\nconst fallback = [`What is ${kw}?`, `Why is ${kw} important?`, `How does ${kw} work?`, `What are common mistakes with ${kw}?`, `How do you get started with ${kw}?`, `What results can you expect from ${kw}?`];\nfor (const f of fallback) {\n  if (faqPlan.length >= 6) break;\n  if (!faqPlan.includes(f)) faqPlan.push(f);\n}\nreturn [{ json: { ...ctx, site_url, topic_id, keyword: kw, primary_keyword: kw, faq_plan: faqPlan.slice(0, 6), faq_source: geminiFaqs.length ? 'gemini' : 'fallback_template', phase_status: 'FAQ_PLAN_READY' } }];"
+      },
+      "id": "fba750ed-1fe0-4e3b-96b4-970dae5116ae",
+      "name": "🧩 Build FAQ Plan",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2064,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.site_url + '/wp-json/wp/v2/posts?per_page=80&status=publish&_fields=id,link,slug,title' }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 120000
+        }
+      },
+      "id": "1685aa24-6c0a-49c9-85ad-5952ef30bdbc",
+      "name": "🔗 Fetch WP Pages (for internal links)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        2256,
+        112
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "RlhjzF06K3kLBnbx",
+          "name": "wordpressApp"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const ctx = $('🧩 Build FAQ Plan').first().json;\nconst kw = String(ctx.keyword || '').toLowerCase();\nconst kwWords = kw.split(/\\s+/).filter(w => w.length > 2);\nconst pages = $input.all().map(i => i.json).filter(p => p && p.id && p.link);\nconst scored = pages.map(p => {\n  const title = String(p.title?.rendered || p.title || '').toLowerCase();\n  const slug = String(p.slug || '').toLowerCase();\n  const combined = `${title} ${slug}`;\n  const pageWords = new Set(combined.split(/[^a-z0-9]+/).filter(Boolean));\n  const overlap = kwWords.filter(w => pageWords.has(w)).length;\n  return { id: p.id, url: p.link, title: String(p.title?.rendered || p.title || ''), slug: p.slug || '', relevance: overlap / Math.max(kwWords.length, 1) };\n}).filter(p => p.relevance >= 0.5).sort((a, b) => b.relevance - a.relevance).slice(0, 5);\nreturn [{ json: { ...ctx, internal_link_candidates: scored, phase_status: 'INTERNAL_LINKS_READY' } }];"
+      },
+      "id": "9b07691d-4cbd-4aaa-911f-18b8da079814",
+      "name": "🔗 Score Internal Link Candidates",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2464,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const ctx = $json;\nconst competitors = (ctx.competitors || []).filter(c => c.usable && c.url);\nconst keywordWords = String(ctx.keyword || '').toLowerCase().split(/\\s+/).filter(w => w.length > 2);\nconst authorityPatterns = ['wikipedia.org','britannica.com','forbes.com','imdb.com','biography.com','reuters.com','bbc.com','nytimes.com','theguardian.com','techcrunch.com','theverge.com','wired.com','statista.com','hbr.org','mozilla.org','ahrefs.com','semrush.com','moz.com','searchenginejournal.com','searchengineland.com','hubspot.com','developers.google.com','support.google.com','cloudflare.com','wordpress.org','pagespeed.web.dev'];\nconst seenDomains = new Set(); const external = [];\nfor (const c of competitors) {\n  const domain = String(c.domain || '').toLowerCase();\n  if (!domain || seenDomains.has(domain)) continue;\n  if (!authorityPatterns.some(p => domain === p || domain.endsWith('.' + p))) continue;\n  seenDomains.add(domain);\n  const titleLower = String(c.seo?.title || c.title || '').toLowerCase();\n  const overlap = keywordWords.filter(w => titleLower.includes(w)).length;\n  external.push({ domain, url: c.url, title: String(c.seo?.title || c.title || domain), anchor_text: String(c.seo?.title || c.title || domain).slice(0, 80), relevance: overlap / Math.max(keywordWords.length, 1) });\n}\nexternal.sort((a, b) => b.relevance - a.relevance);\nreturn [{ json: { ...ctx, external_link_candidates: external.slice(0, 3), phase_status: 'EXTERNAL_LINKS_READY' } }];"
+      },
+      "id": "a01cf802-de91-4d6f-9454-bd7d66717eba",
+      "name": "🔗 Build External Link Plan",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2672,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const ctx = $json;\nconst cfgW = $('⚙️ Config').first().json;\nconst safeMin = Number(cfgW.article_min_words || 2500);\nconst safeMax = Math.max(safeMin + 400, Number(cfgW.article_max_words || 3200));\nconst target = Math.round((safeMin + safeMax) / 2);\nconst usable = (ctx.competitors || []).filter(c => c.usable);\nconst titleSamples = usable.slice(0, 8).map(c => c.seo?.title).filter(Boolean);\nconst competitorExcerpts = usable.slice(0, 5).map(c => ({ domain: c.domain, title: c.seo?.title || '', url: c.url, excerpt: String(c.extractedText || '').replace(/\\n/g, ' ').replace(/\\s+/g, ' ').slice(0, 6000) })).filter(x => x.excerpt.length > 200);\nreturn [{ json: { ...ctx, brief_input: { keyword: ctx.keyword, search_intent: ctx.search_intent || 'informational', competitor_count: usable.length, title_samples: titleSamples, common_h2: ctx.common_h2?.slice(0, 20).map(x => x.topic) || [], common_h3: ctx.common_h3?.slice(0, 20).map(x => x.topic) || [], competitor_excerpts: competitorExcerpts, word_count: { min: safeMin, target: target, max: safeMax }, site_url: ctx.site_url, topic_id: ctx.topic_id, faq_plan: ctx.faq_plan || [], faq_source: ctx.faq_source || '', reddit_faqs: ctx.reddit_faqs || [], secondary_keywords: ctx.secondary_keywords || [], keyword_source: ctx.keyword_source || 'ahrefs', lsi_keywords: ctx.lsi_keywords || [], niche: ctx.niche || 'auto', internal_link_candidates: ctx.internal_link_candidates || [], external_link_candidates: ctx.external_link_candidates || [] }, phase_status: 'BRIEF_READY' } }];"
+      },
+      "id": "9863899b-92d1-4f7e-b7cb-e4e5f6bb2596",
+      "name": "📋 Build Brief Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2912,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const ctx = $json;\nconst brief = ctx.brief_input || {};\nconst kw = ctx.keyword || '';\nconst words = brief.word_count || { min: 1500, target: 1800, max: 2100 };\nconst STOP_H2 = /^(contents|references|see also|external links|bibliography|further reading|chapters|transcript|comments|related articles|subscribe|newsletter)/i;\nconst cleanH2 = (s) => String(s || '').replace(/\\s+/g, ' ').replace(/^[-\\s•|]+/, '').replace(/[|]+$/, '').trim();\nconst rawH2 = (brief.common_h2 || []).map(x => cleanH2(x)).filter(s => s.length >= 5 && s.length <= 90).filter(s => !STOP_H2.test(s));\nconst seenH2 = new Set();\nconst competitorH2s = [];\nfor (const h of rawH2) {\n  const key = h.toLowerCase();\n  if (seenH2.has(key)) continue;\n  seenH2.add(key);\n  competitorH2s.push(h);\n  if (competitorH2s.length >= 12) break;\n}\nconst lsi = Array.isArray(brief.lsi_keywords) ? brief.lsi_keywords.map(x => typeof x === 'string' ? x : (x.keyword || '')).filter(Boolean) : [];\nconst secondary = Array.isArray(brief.secondary_keywords) ? brief.secondary_keywords.map(x => typeof x === 'string' ? x : (x.keyword || '')).filter(Boolean) : [];\nconst faqPlan = brief.faq_plan || ctx.faq_plan || [];\nconst redditFaqs = brief.reddit_faqs || ctx.reddit_faqs || [];\nconst faqSource = brief.faq_source || ctx.faq_source || '';\nreturn [{ json: { ...ctx, faq_plan: faqPlan, reddit_faqs: redditFaqs, faq_source: faqSource, writer_context: { primaryKeyword: kw, blogTitle: String(ctx.title || ctx.topic || '').trim(), secondaryKeywords: secondary, lsiKeywords: lsi, niche: brief.niche || ctx.niche || 'auto', keywordSource: brief.keyword_source || 'semrush', searchIntent: brief.search_intent || 'informational', targetWordCount: words.target, wordCountRange: words, competitorH2s: competitorH2s, competitorH3s: brief.common_h3 || [], competitorTitles: brief.title_samples || [], competitorExcerpts: brief.competitor_excerpts || [], faqPlan: faqPlan, faqSource: faqSource, redditFaqs: redditFaqs, internalLinkCandidates: brief.internal_link_candidates || [], externalLinkCandidates: brief.external_link_candidates || [], site_url: ctx.site_url, topic_id: ctx.topic_id }, retry_count: 0, phase_status: 'WRITER_CONTEXT_READY' } }];"
+      },
+      "id": "67c2f263-ad13-4520-8be0-bb52a2b38a4b",
+      "name": "✍️ Writer Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3104,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "modelName": "models/gemini-3.5-flash-lite",
+        "options": {
+          "temperature": 0.3,
+          "maxOutputTokens": 16000
+        }
+      },
+      "id": "446ae6fb-86a0-4858-8066-e58e52fa9aee",
+      "name": "🧠 Gemini Pro (Planner)",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1.1,
+      "position": [
+        3248,
+        304
+      ],
+      "credentials": {
+        "googlePalmApi": {
+          "id": "GvSjxUdeMTBIbAH9",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You are a senior expert blog writer and editor with deep subject knowledge and years of experience writing articles that rank and that readers trust. Plan an article that a real reader will find genuinely useful and that earns their trust. Produce a DETAILED ARTICLE PLAN, not the article itself.\n\nINPUTS:\n- BLOG TITLE (given by the editor, this sets the DIRECTION and subject of the article; stay faithful to it): {{ $json.writer_context.blogTitle }}\n- Primary keyword (SEO target, from Ahrefs/SEMrush data): {{ $json.writer_context.primaryKeyword }}\n- Secondary keywords (real Ahrefs/SEMrush data): {{ JSON.stringify($json.writer_context.secondaryKeywords) }}\n- LSI/context terms: {{ JSON.stringify($json.writer_context.lsiKeywords) }}\n- Niche (background only; the BLOG TITLE decides the subject): {{ $json.writer_context.niche }}\n- Search intent: {{ $json.writer_context.searchIntent }}\n- Target word count: {{ $json.writer_context.targetWordCount }} (range {{ $json.writer_context.wordCountRange.min }}–{{ $json.writer_context.wordCountRange.max }})\n\nCOMPETITOR H2s (real headings from top-ranking pages):\n{{ JSON.stringify($json.writer_context.competitorH2s, null, 2) }}\n\nCOMPETITOR TITLES:\n{{ JSON.stringify($json.writer_context.competitorTitles, null, 2) }}\n\nCOMPETITOR CONTENT EXCERPTS (research material; facts must come from here or be well-established public knowledge):\n{{ JSON.stringify($json.writer_context.competitorExcerpts, null, 2) }}\n\nNICHE PLAYBOOKS (decide the niche from the BLOG TITLE and set article_type; then follow its playbook):\n- BIOGRAPHY / person (article_type person): neutral, factual, encyclopedic yet engaging. Typical order: quick facts, early life and family, career timeline, achievements and awards, personal life, net worth and earnings (say it is an estimate and name the source), what is next, Conclusion. Use dates, names and numbers from the research. Handle private matters (health, relationships, family) only when widely reported by reputable sources and say \"reportedly\" where needed. Never speculate, never invent, never include rumors.\n- DIGITAL MARKETING / business (article_type howto or service): problem first, clear definition, a step-by-step framework, tools, metrics and benchmarks (only from the research), common mistakes, a short example or case, an action checklist or table.\n- TECHNOLOGY (article_type product or concept): what it is, how it works in plain words, key specs in a table, pros and cons, real use cases, comparison or alternatives, who it is for, a clear verdict.\n- OTHER: a complete beginner-friendly guide that answers the searcher's questions in a logical order.\n\nHOW TO THINK (do this before planning):\n1. WHO is searching this keyword, and what exact problem or question do they have? Write it as reader_profile and reader_goal.\n2. What is the single clear ANGLE of this article? One sentence: the main message a reader should walk away with. Make it more helpful than the competitors: cover what they skip, explain it more simply, or add practical steps, examples and common mistakes.\n3. The article must fully answer the search intent. If the intent is informational, the reader should be able to understand the topic and act on it after reading, without needing another page.\n\nYOUR TASK:\n1. Decide the article TYPE: person | product | howto | service | concept\n2. Choose 7-9 H2 headings (the article must reach {{ $json.writer_context.wordCountRange.min }}+ words, so plan enough sections for real depth, never fluff). Each H2 must answer a real reader question, follow a logical order (basics, then how/why, then practical use, then mistakes/next steps), and read like a human wrote it. Prefer competitor H2s when relevant, and add at least one section competitors miss. Include the primary keyword and close variations of it in the H1, in several H2s and in H3s, and work secondary keywords into other headings where they fit. Never stuff or force them. Headings must NOT be numbered and must not contain em or en dashes (— or –). No filler heading like \"Introduction\". The LAST H2 must be the Conclusion section: use a heading like \"Conclusion\" or \"Final Thoughts on <subject>\" (include the primary keyword or the subject's name), and give it facts_to_include made of the 2-4 most important takeaways of the whole article.\n3. For EACH H2 provide: reader_question, answer_first (the direct 1-2 sentence answer that opens the section), 2-4 SPECIFIC facts_to_include (dates, names, numbers, steps, examples) taken from the excerpts, a format (paragraphs | steps | list | comparison), keywords (1-3 secondary/LSI terms to use naturally in that section), and target_words. If the excerpts hold no solid facts for a section, base it on well-established knowledge, keep it practical, and never invent statistics, names or quotes.\n4. Write a compelling H1 (50-60 chars) that keeps the direction of the BLOG TITLE, contains the primary keyword, and promises a clear benefit. Polish the title; never change its topic. Do not use em or en dashes (— or –) in the H1, meta title or meta description.\n5. Write a meta description (140-160 chars) with the primary keyword and a reason to click.\n6. Write a hook: the opening angle for the intro (a relatable problem, surprising fact or direct promise).\n7. Write the closing takeaway (it goes into the Conclusion section) so it fits the article type: for a person, a recap of the key facts and what to watch for next; for a how-to, the next action steps. Never generic life or career advice.\n8. Extract 6 KEY FACTS for a \"Quick Information\" box shown at the top. Each = label (1-3 words) + value (max 8 words).\n   person: Full Name, Born, Nationality, Known For, Spouse, Children, Notable Event\n   product: Product Name, Category, Released, Developer, Platform, Price Range\n   howto: Difficulty, Time Required, Tools Needed, Cost, Result\n   service/concept: Category, Best For, Typical Cost, Time to Results, Key Benefit, Difficulty\n9. Mark in each section's format where a TABLE, LIST, or quote adds value (comparisons, specs, steps, pros/cons, key numbers) so the article is not just paragraphs.\n10. Generate 4 IMAGE SEARCH QUERIES for Google Images that include the primary keyword, are specific to the article, and avoid stock-photo/watermark sources.\n\nOUTPUT: return ONLY this JSON (no markdown):\n{\n  \"article_type\": \"person|product|howto|service|concept\",\n  \"reader_profile\": \"who is searching and why\",\n  \"reader_goal\": \"what they want to achieve after reading\",\n  \"angle\": \"the one clear main message of the article\",\n  \"hook\": \"how the intro opens\",\n  \"closing_takeaway\": \"what the reader should do next\",\n  \"h1_title\": \"...\",\n  \"meta_title\": \"...\",\n  \"meta_description\": \"...\",\n  \"slug\": \"...\",\n  \"quick_info\": [ { \"label\": \"...\", \"value\": \"...\" } ],\n  \"image_queries\": [\"q1\", \"q2\", \"q3\", \"q4\"],\n  \"sections\": [\n    { \"h2\": \"Exact H2 Heading\", \"reader_question\": \"...\", \"answer_first\": \"...\", \"facts_to_include\": [\"...\"], \"format\": \"paragraphs|steps|list|table|comparison\", \"keywords\": [\"...\"], \"target_words\": 250 }\n  ],\n  \"total_planned_words\": 2800\n}",
+        "batching": {}
+      },
+      "id": "1ccdb014-fed8-47b4-b704-5a52d856eda8",
+      "name": "🎯 Plan Article",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.9,
+      "position": [
+        3296,
+        112
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 4000
+    },
+    {
+      "parameters": {
+        "modelName": "models/gemini-3.5-flash-lite",
+        "options": {
+          "temperature": 0.7,
+          "maxOutputTokens": 32000
+        }
+      },
+      "id": "d291efb6-7bbf-49f2-9706-9dc835bd7df9",
+      "name": "✍️ Gemini Writer Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1.1,
+      "position": [
+        3680,
+        304
+      ],
+      "credentials": {
+        "googlePalmApi": {
+          "id": "GvSjxUdeMTBIbAH9",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.__retry ? 'PREVIOUS DRAFT REJECTED. Fix these issues and rewrite:\\n' + JSON.stringify($json.__critique) + '\\nInstructions: ' + $json.__rewrite_instructions + '\\n\\nPREVIOUS DRAFT HTML (keep what is good, fix the issues, expand it and never shorten it):\\n' + ($json.__previous_draft || '') + '\\n\\n' : '' }}You are a senior expert blog writer and subject-matter editor with years of experience. Write the full article from the plan below so it reads like a knowledgeable person explaining the topic to a friend: clear, confident, practical and genuinely useful. It must never read like generic AI text.\n\nPLAN:\n{{ JSON.stringify({ h1_title: $json.h1_title, meta_title: $json.meta_title, meta_description: $json.meta_description, slug: $json.slug, reader_profile: $json.reader_profile, reader_goal: $json.reader_goal, angle: $json.angle, hook: $json.hook, closing_takeaway: $json.closing_takeaway, quick_info: $json.quick_info, image_queries: $json.image_queries, sections: $json.sections, total_planned_words: $json.total_planned_words }, null, 2) }}\n\nBLOG TITLE (the direction you must follow): {{ $json.writer_context.blogTitle }}\n\nKEYWORDS (from Ahrefs/SEMrush):\n- Primary: {{ $json.writer_context.primaryKeyword }}\n- Secondary: {{ JSON.stringify($json.writer_context.secondaryKeywords) }}\n- LSI: {{ JSON.stringify($json.writer_context.lsiKeywords) }}\n\nRESEARCH MATERIAL (use it for facts, depth and examples; never copy sentences):\n{{ JSON.stringify($json.writer_context.competitorExcerpts, null, 2) }}\n\nLENGTH: write an in-depth, comprehensive article of NOT LESS THAN {{ $json.writer_context.wordCountRange.min }} words (aim for about {{ $json.total_planned_words }}). Short paragraphs, each carrying real knowledge. Every H2 section needs at least 300 words (3-5 short paragraphs plus a list or table where it helps), and the whole article must pass {{ $json.writer_context.wordCountRange.min }} words, so do not stop early. Depth comes from specifics, examples, numbers, steps and explanations, never from padding or repetition.\n\nNICHE RULES by plan.article_type: person = neutral, factual biography tone, estimates labelled as estimates with their source, no rumors, no invented details; howto/service = practical steps, tools, metrics and examples; product/concept = how it works, specs table, pros and cons, a clear verdict.\n\nSTRUCTURE (output HTML, not markdown):\n- Exactly ONE <h1> using plan.h1_title.\n- Intro of 2-3 short paragraphs (~100 words) that opens with the plan's hook, says what the reader will learn, and uses the primary keyword within the first 100 words.\n- One <h2> per plan section, in order, using the exact plan headings. Do NOT number any heading. Open each section with its answer_first, then expand with explanation, examples and facts_to_include. Use <h3> sub-headings in long sections.\n- Use rich formatting wherever it helps: <ul>/<ol> lists, at least one <table> (with <thead>/<tbody>) for comparisons or key numbers, a <blockquote> for a key insight or expert-style takeaway, and <strong> for important terms.\n- End with a final <h2> Conclusion section, using the plan's last heading (for example \"Conclusion\" or \"Final Thoughts on <subject>\"). Write 2 short paragraphs (80-150 words): recap the 3-4 most important facts or takeaways, answer the main question one last time using the primary keyword, and finish with a closing line that fits the topic: for a person or celebrity, a recap of the key facts and what to watch for next; for a how-to, the next action steps. NEVER give generic life or career advice to the reader (like \"diversify your own skills\") unless the topic is a how-to about that. Do NOT start the conclusion with the words \"In conclusion\". Do NOT write the FAQ section (added downstream). Do NOT add a quick-info table (added downstream).\n\nKEYWORD USE:\n- Primary keyword and natural variations of it: in the H1, the first 100 words, several H2s and H3s, the closing section, and naturally through the text.\n- Weave in the secondary and LSI keywords naturally, section by section. Use <strong> only for genuinely important terms and key takeaways. Never stuff. Readability comes first.\n\nWRITING STYLE (write like a friendly, knowledgeable human, in US English):\n- Use active voice. Vary sentence structure and length: mix long, flowing sentences with short punchy ones (mostly 6-20 words). Start sentences in different ways.\n- Use contractions (don't, isn't, you'll) naturally, but don't overdo it. Speak directly to the reader as \"you\".\n- Prefer simple words over fancy ones. Add examples, analogies, anecdotes and the occasional idiom or light humor, used sparingly and thoughtfully.\n- Open each paragraph with a hook, link ideas with natural transitions (\"However\", \"For example\", \"That said\"), and keep vocabulary varied.\n- Be concise: no throat-clearing, no lecture tone, no self-references (\"as an AI\", \"in this article I will\").\n- Give clear, concrete facts and figures instead of vague gaps. Never write \"the height is unknown\" style filler; if a fact isn't in the research and you're not certain, leave that detail out and cover something you can state confidently.\n- When you reference a source, name it clearly.\n- NEVER use em dashes or en dashes (— or –) anywhere, including headings and titles. Use a period, a colon or a new sentence instead. Normal hyphens inside words (step-by-step) are fine.\n- Always keep apostrophes in possessives and contractions, in headings too (Zendaya's net worth, her father's career, the show's direction). Never write \"Zendayas\" or \"fathers previous\".\n- Use commas sparingly. Prefer short sentences over long comma-chained ones, and never string several commas in one sentence. Commas inside numbers (1,500) and dates stay.\n- Banned phrases: \"in today's world\", \"it's important to note\", \"in conclusion\", \"delve into\", \"plays a crucial role\", \"when it comes to\", \"over the years\", \"various experts\", \"game-changer\", \"unlock the power\", \"in the ever-evolving\", \"formidable\", \"jaw-dropping\", \"powerhouse\", \"tapestry\", \"testament to\", \"cementing her status\", \"redefined what it means\", \"shattered\", \"navigate the landscape\".\n\nACCURACY:\n- Include all facts_to_include. You may add well-established public knowledge that directly helps the reader, but NEVER invent statistics, dates, names, quotes or sources. If unsure, leave the detail out.\n\nOUTPUT: return ONLY this JSON (no markdown):\n{\n  \"title\": \"H1 title (same as plan)\",\n  \"metaTitle\": \"50-60 chars\",\n  \"metaDescription\": \"140-160 chars\",\n  \"slug\": \"url-slug\",\n  \"excerpt\": \"1-2 sentence summary that makes the reader want to read\",\n  \"imageQueries\": [\"q1\", \"q2\", \"q3\", \"q4\"],\n  \"quick_info\": [ { \"label\": \"same as plan\", \"value\": \"same as plan\" } ],\n  \"article\": \"<h1>...</h1><p>...</p><h2>...</h2><p>...</p>...\",\n  \"reportedWordCount\": 0\n}",
+        "batching": {}
+      },
+      "id": "1bcff75b-f37b-40bb-9412-dc6a91627795",
+      "name": "✍️ Write Draft",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.9,
+      "position": [
+        3664,
+        112
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 4000
+    },
+    {
+      "parameters": {
+        "modelName": "models/gemini-3.5-flash-lite",
+        "options": {
+          "temperature": 0.2,
+          "maxOutputTokens": 8192
+        }
+      },
+      "id": "677cd29d-154b-48be-9a8f-eb2ed84ecee2",
+      "name": "🔍 Gemini Pro (Critic)",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1.1,
+      "position": [
+        4064,
+        272
+      ],
+      "credentials": {
+        "googlePalmApi": {
+          "id": "GvSjxUdeMTBIbAH9",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You are a strict senior editor who has to decide whether this article is good enough to publish under a real brand. Judge it the way a demanding reader and an SEO would.\n\nPLAN (source of truth for facts and structure):\n{{ JSON.stringify($('📋 Parse Plan').first().json.plan || $('📋 Parse Plan').first().json, null, 2) }}\n\nBLOG TITLE (the required direction): {{ $('📋 Parse Plan').first().json.writer_context.blogTitle }}\nKEYWORDS: primary = {{ $('📋 Parse Plan').first().json.writer_context.primaryKeyword }}; secondary = {{ JSON.stringify($('📋 Parse Plan').first().json.writer_context.secondaryKeywords) }}\n\nDRAFT:\n{{ JSON.stringify($json, null, 2) }}\n\nSCORE EACH 0-10:\n1. ANSWERS_INTENT: does it fully answer what the searcher wants (reader_goal), so they need no other page? Penalize missing basics, missing how-to steps, or unanswered obvious questions.\n2. ANGLE_CLARITY: does the article stay true to the BLOG TITLE's direction, and is there one clear angle/main message, with a logical flow from basics to practical use?\n3. FACT_DENSITY: specific dates, names, numbers, steps and examples (count them in fact_count).\n4. VAGUENESS: start at 10, subtract 2 for EACH banned or filler phrase (\"in today's world\", \"it's important to note\", \"over the years\", \"various experts\", \"in conclusion\", \"delve into\", \"plays a crucial role\", \"when it comes to\") and 1 for each generic paragraph that adds no information.\n5. HUMAN_VOICE: reads like a skilled human writer (varied rhythm, concrete language, no repetitive patterns, no robotic transitions). Subtract 1 for every em or en dash (— or –) found, and penalize long sentences chained together with many commas. Subtract 1 for each AI cliche (jaw-dropping, formidable, powerhouse, shattered typecasting, cementing her status, testament to) and for each missing apostrophe in a possessive or contraction (such as Zendayas instead of Zendaya's). Subtract 3 if the closing gives generic life or career advice unrelated to the topic.\n6. KEYWORD_USE: the primary keyword is in the H1, the first 100 words and at least one H2; secondary/LSI terms appear naturally in headings and text; NO stuffing or awkward phrasing.\n7. STRUCTURE: exactly one <h1>, H2s match the plan and are not numbered, intro of 2-3 short paragraphs, scannable short paragraphs, and a final Conclusion section (last H2, 2 short paragraphs recapping the key takeaways). Score structure below 6 if the Conclusion section is missing. The Conclusion heading itself is fine; only the phrase \"in conclusion\" in the text is penalized.\n8. DEPTH_AND_FORMAT: at least {{ $('📋 Parse Plan').first().json.writer_context.wordCountRange.min }} words of real substance (no padding), at least one <table>, lists, a <blockquote>, and <strong> used for key terms.\n\nPASS ONLY IF: average >= 7.5 AND no single score below 6 AND fact_count >= 10 AND answers_intent >= 7 AND keyword_use >= 6 AND depth_and_format >= 6.\n\nIf not approved, give precise rewrite_instructions: name the exact sections or paragraphs to fix and what to add (facts, steps, examples, keyword placement). Do not give vague advice.\n\nOUTPUT: return ONLY this JSON (no markdown):\n{\n  \"scores\": { \"answers_intent\": 0, \"angle_clarity\": 0, \"fact_density\": 0, \"vagueness\": 0, \"human_voice\": 0, \"keyword_use\": 0, \"structure\": 0, \"depth_and_format\": 0 },\n  \"average\": 0,\n  \"fact_count\": 0,\n  \"approved\": false,\n  \"issues\": [\"specific problem 1\"],\n  \"rewrite_instructions\": \"...\"\n}",
+        "batching": {}
+      },
+      "id": "5289153c-1a5d-40d3-bf08-cfcfa5d3dee8",
+      "name": "🔍 Critique Draft",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.9,
+      "position": [
+        4000,
+        112
+      ],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 4000
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "crit1",
+              "leftValue": "={{ $json.approved }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "aacb77d2-bbf5-437e-9ffb-a8857449c45c",
+      "name": "❓ Critique Approved?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        4528,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const plan = $('📋 Parse Plan').first().json;\nconst draft = $('✍️ Write Draft').first().json;\nconst critique = $('Parse Critique').first().json || {};\nconst priorRetry = $runIndex;\nconst retryCount = priorRetry + 1;\nconst maxRetries = Number($('⚙️ Config').first().json.max_retries || 2);\nif (retryCount > maxRetries) {\n  return [{ json: { ...draft, ...plan, __retry: retryCount, __critic_override: true, __critique: critique.issues || [], phase_status: 'CRITIC_OVERRIDE' } }];\n}\nreturn [{ json: { ...plan, __previous_draft: critique.draft_article_html || '', __critique: critique.issues || [], __rewrite_instructions: critique.rewrite_instructions || '', __retry: retryCount, phase_status: 'RETRY_PREPARED' } }];"
+      },
+      "id": "bf379fc4-8361-4f0e-89df-e266388d4526",
+      "name": "🔄 Retry Prep",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4576,
+        368
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const ctx = $('✍️ Writer Context').first().json;\nconst raw = $json || {};\nlet text = '';\nif (typeof raw.text === 'string') text = raw.text;\nelse if (typeof raw.output === 'string') text = raw.output;\nelse if (typeof raw.output === 'object' && raw.output) {\n  return [{ json: { ...ctx, plan: raw.output, ...raw.output, quick_info: raw.output.quick_info || [], image_queries: raw.output.image_queries || [], phase_status: 'PLAN_PARSED' } }];\n}\nif (!text) throw new Error('Plan Article returned no text output');\ntext = String(text).trim().replace(/^```(?:json)?\\s*/i, '').replace(/\\s*```$/i, '').trim();\nlet plan = null;\ntry { plan = JSON.parse(text); }\ncatch (e) { const a = text.indexOf('{'); const b = text.lastIndexOf('}'); if (a >= 0 && b > a) { try { plan = JSON.parse(text.slice(a, b + 1)); } catch (e2) {} } }\nif (!plan) { const fixKeys = s => s.replace(/(^\\s*|[,{]\\s*)[^\"\\s{},:\\[\\]]*?(\\w+)\"\\s*:/gm, '$1\"$2\":'); for (const cand of [text, text.slice(Math.max(0, text.indexOf('{')), text.lastIndexOf('}') + 1)]) { try { plan = JSON.parse(fixKeys(cand)); break; } catch (e5) {} } }\nif (!plan || !plan.sections) throw new Error('Could not parse plan JSON. Raw: ' + text.slice(0, 500));\nif (Array.isArray(plan.sections) && plan.sections.length) {\n  const subject = String(ctx.writer_context?.blogTitle || ctx.keyword || '').split(':')[0].trim() || 'This Topic';\n  const last = plan.sections[plan.sections.length - 1];\n  if (!/^(conclusion|final thoughts)/i.test(String(last.h2 || '').trim())) {\n    if (/summary|outlook|wrap|takeaway|final|conclusion|closing/i.test(String(last.h2 || ''))) { last.h2 = 'Final Thoughts on ' + subject; last.format = 'paragraphs'; }\n    else plan.sections.push({ h2: 'Final Thoughts on ' + subject, reader_question: 'What are the key takeaways?', answer_first: 'A short recap of the most important facts about ' + subject + '.', facts_to_include: plan.sections.slice(0, 4).map(s => 'Key point from: ' + s.h2), format: 'paragraphs', keywords: [], target_words: 150 });\n  }\n}\nreturn [{ json: { ...ctx, ...plan, plan, quick_info: plan.quick_info || [], image_queries: plan.image_queries || [], phase_status: 'PLAN_PARSED' } }];"
+      },
+      "id": "306a8851-d417-4931-ba28-53490c5561cf",
+      "name": "📋 Parse Plan",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3808,
+        256
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const ctx = $('📋 Parse Plan').first().json;\nconst raw = $json || {};\nlet text = '';\nif (typeof raw.text === 'string') text = raw.text;\nelse if (typeof raw.output === 'string') text = raw.output;\nelse if (typeof raw.output === 'object' && raw.output) {\n  return [{ json: { ...ctx, critique: raw.output, approved: Boolean(raw.output.approved), ...raw.output, phase_status: 'CRITIQUE_PARSED' } }];\n}\nif (!text) throw new Error('Critique Draft returned no text output');\ntext = String(text).trim().replace(/^```(?:json)?\\s*/i, '').replace(/\\s*```$/i, '').trim();\nlet critique = null;\ntry { critique = JSON.parse(text); }\ncatch (e) { const a = text.indexOf('{'); const b = text.lastIndexOf('}'); if (a >= 0 && b > a) { try { critique = JSON.parse(text.slice(a, b + 1)); } catch (e2) {} } }\nif (!critique) { const fixKeys = s => s.replace(/(^\\s*|[,{]\\s*)[^\"\\s{},:\\[\\]]*?(\\w+)\"\\s*:/gm, '$1\"$2\":'); for (const cand of [text, text.slice(Math.max(0, text.indexOf('{')), text.lastIndexOf('}') + 1)]) { try { critique = JSON.parse(fixKeys(cand)); break; } catch (e5) {} } }\nif (!critique) throw new Error('Could not parse critique JSON. Raw: ' + text.slice(0, 500));\n// Real word count of the latest draft (the critic model cannot count words)\nlet draftHtml = '';\ntry {\n  const d = $('✍️ Write Draft').first().json || {};\n  if (d.output && typeof d.output === 'object') draftHtml = String(d.output.article || '');\n  else {\n    let t = String(typeof d.text === 'string' ? d.text : (d.output || '')).trim().replace(/^```(?:json)?\\s*/i, '').replace(/\\s*```$/i, '').trim();\n    let p = null;\n    try { p = JSON.parse(t); } catch (e) { const a = t.indexOf('{'), b = t.lastIndexOf('}'); if (a >= 0 && b > a) { try { p = JSON.parse(t.slice(a, b + 1)); } catch (e2) {} } }\n    if (p && typeof p.article === 'string') draftHtml = p.article;\n    else { const m = t.match(/\"article\"\\s*:\\s*\"([\\s\\S]*)\"/); if (m) draftHtml = m[1].replace(/\\\\n/g, ' ').replace(/\\\\\"/g, '\"'); }\n  }\n} catch (e) {}\nconst draftWords = draftHtml ? draftHtml.replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\\s+/g, ' ').trim().split(' ').filter(Boolean).length : 0;\nconst wcRange = ctx.writer_context?.wordCountRange || { min: 2500 };\nconst minWords = Math.round(Number(wcRange.min || 2500) * 0.85);\nif (draftWords > 0 && draftWords < minWords) {\n  critique.approved = false;\n  critique.issues = [...(Array.isArray(critique.issues) ? critique.issues : []), 'Article has only ' + draftWords + ' words; the minimum is ' + wcRange.min];\n  critique.rewrite_instructions = 'The draft has only ' + draftWords + ' words but MUST have at least ' + wcRange.min + '. Add about ' + (Number(wcRange.min) - draftWords) + ' more words of real substance: deeper explanations, concrete examples, extra useful detail and a table or list in every section where it helps. Keep everything good that is already there and never shorten it. ' + (critique.rewrite_instructions || '');\n}\nlet retriesDone = 0;\nretriesDone = $runIndex;\nconst maxRetriesAllowed = Number($('⚙️ Config').first().json.max_retries || 2);\nif (!critique.approved && retriesDone >= maxRetriesAllowed) { critique.approved = true; critique.critic_override = true; }\n\nreturn [{ json: { ...ctx, ...critique, critique, approved: Boolean(critique.approved), draft_article_html: draftHtml, draft_word_count: draftWords, phase_status: 'CRITIQUE_PARSED' } }];"
+      },
+      "id": "0d04fa2c-cef4-47f0-8179-169bf9364413",
+      "name": "Parse Critique",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4368,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "let ctx = {};\ntry { ctx = $('Parse Critique').first().json || {}; } catch (e) {}\nif (!Object.keys(ctx).length) { try { ctx = $('📋 Parse Plan').first().json || {}; } catch (e) {} }\nconst raw = $('✍️ Write Draft').first().json || {};\nlet text = '';\nif (typeof raw.text === 'string') text = raw.text;\nelse if (typeof raw.output === 'string') text = raw.output;\nelse if (raw.output && typeof raw.output === 'object') {\n  return [{ json: { ...ctx, article_json: raw.output, article: raw.output, article_html: typeof raw.output.article === 'string' ? raw.output.article : '', phase_status: 'ARTICLE_PARSED' } }];\n}\nelse if (typeof raw.article === 'string') text = raw.article;\nif (!text) return [{ json: { ...ctx, article_json: null, article_error: 'No text field in Writer output', phase_status: 'ARTICLE_PARSE_FAILED' } }];\ntext = String(text).trim().replace(/^```(?:json)?\\s*/i, '').replace(/\\s*```$/i, '').trim();\nlet parsed = null;\ntry { parsed = JSON.parse(text); }\ncatch (e) { const a = text.indexOf('{'); const b = text.lastIndexOf('}'); if (a >= 0 && b > a) { try { parsed = JSON.parse(text.slice(a, b + 1)); } catch (e2) {} } }\nif (!parsed) { const fixKeys = s => s.replace(/(^\\s*|[,{]\\s*)[^\"\\s{},:\\[\\]]*?(\\w+)\"\\s*:/gm, '$1\"$2\":'); for (const cand of [text, text.slice(Math.max(0, text.indexOf('{')), text.lastIndexOf('}') + 1)]) { try { parsed = JSON.parse(fixKeys(cand)); break; } catch (e5) {} } }\nif (!parsed) return [{ json: { ...ctx, article_json: null, article_raw: text.slice(0, 1000), article_error: 'JSON parse failed', phase_status: 'ARTICLE_PARSE_FAILED' } }];\nreturn [{ json: { ...ctx, article_json: parsed, article: parsed, article_html: typeof parsed.article === 'string' ? parsed.article : '', phase_status: 'ARTICLE_PARSED' } }];"
+      },
+      "id": "4f9a91ef-be55-43ee-8f32-c3becf4fd4de",
+      "name": "📥 Parse Article",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4800,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "let ctx = $json || {};\ntry { const p = $('📥 Parse Article').first().json; if (p) ctx = { ...p, ...ctx }; } catch (e) {}\ntry { const pp = $('📋 Parse Plan').first().json; if (pp && pp.writer_context) ctx.writer_context = ctx.writer_context || pp.writer_context; } catch (e) {}\nconst articleJson = ctx.article_json || {};\nlet html = '';\nif (typeof articleJson.article === 'string' && articleJson.article.length > 100) html = articleJson.article;\nelse if (typeof articleJson.article_html === 'string' && articleJson.article_html.length > 100) html = articleJson.article_html;\nelse if (typeof ctx.article_html === 'string' && ctx.article_html.length > 100) html = ctx.article_html;\nelse if (typeof ctx.article === 'string' && ctx.article.length > 100) html = ctx.article;\nelse if (ctx.article && typeof ctx.article === 'object' && typeof ctx.article.article === 'string') html = ctx.article.article;\nif (!html || html.length < 200) return [{ json: { ...ctx, trim_status: 'skipped_no_html', phase_status: 'ARTICLE_TRIM_SKIPPED' } }];\nconst wc = ctx.writer_context || {};\nconst bodyMax = wc.wordCountRange?.max || 2200;\nconst maxWords = bodyMax + 900;\nfunction countWords(htmlStr) { return htmlStr.replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/\\s+/g, ' ').trim().split(' ').filter(Boolean).length; }\nlet words = countWords(html);\nif (words > maxWords * 1.05) {\n  const parts = html.split(/(?=<h2\\b)/i);\n  const faqIndex = parts.findIndex(p => /frequently\\s+asked\\s+questions?/i.test(p));\n  if (faqIndex > 0) {\n    const beforeFaq = parts.slice(0, faqIndex);\n    const faqAndAfter = parts.slice(faqIndex);\n    while (beforeFaq.length > 4 && countWords(beforeFaq.join('') + faqAndAfter.join('')) > maxWords) beforeFaq.pop();\n    html = beforeFaq.join('') + faqAndAfter.join('');\n    words = countWords(html);\n  }\n}\nreturn [{ json: { ...ctx, article_json: { ...articleJson, article: html }, article: { ...(ctx.article || articleJson), article: html }, article_html: html, trim_status: 'ok', trimmed_word_count: words, phase_status: 'ARTICLE_TRIMMED' } }];"
+      },
+      "id": "23a9f2fc-cf65-41e8-9bec-618d782e3b50",
+      "name": "Trim Article",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5024,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "let ctx = $json || {};\ntry { const t = $('✂️ Trim Article').first().json; if (t) ctx = { ...t, ...ctx }; } catch (e) {}\n\nlet faqPlan = [];\nlet redditFaqs = [];\nif (Array.isArray(ctx.faq_plan) && ctx.faq_plan.length) faqPlan = ctx.faq_plan;\nif (Array.isArray(ctx.reddit_faqs) && ctx.reddit_faqs.length) redditFaqs = ctx.reddit_faqs;\nif (!faqPlan.length || !redditFaqs.length) {\n  try {\n    const wc = $('✍️ Writer Context').first().json || {};\n    const wctx = wc.writer_context || {};\n    if (!faqPlan.length) faqPlan = wc.faq_plan || wctx.faqPlan || [];\n    if (!redditFaqs.length) redditFaqs = wc.reddit_faqs || wctx.redditFaqs || [];\n  } catch (e) {}\n}\nif (!faqPlan.length || !redditFaqs.length) {\n  try {\n    const bfp = $('🧩 Build FAQ Plan').first().json || {};\n    if (!faqPlan.length) faqPlan = bfp.faq_plan || [];\n    if (!redditFaqs.length) redditFaqs = bfp.reddit_faqs || [];\n  } catch (e) {}\n}\nconst articleJson = ctx.article_json || {};\nlet articleHtml = '';\nif (typeof articleJson.article === 'string' && articleJson.article.length > 100) articleHtml = articleJson.article;\nelse if (typeof articleJson.article_html === 'string' && articleJson.article_html.length > 100) articleHtml = articleJson.article_html;\nelse if (typeof ctx.article_html === 'string' && ctx.article_html.length > 100) articleHtml = ctx.article_html;\nelse if (typeof ctx.article === 'string' && ctx.article.length > 100) articleHtml = ctx.article;\nelse if (ctx.article && typeof ctx.article === 'object' && typeof ctx.article.article === 'string') articleHtml = ctx.article.article;\nif (!articleHtml || articleHtml.length < 200) { return [{ json: { ...ctx, faq_inject_error: 'no article html', phase_status: 'FAQ_INJECT_SKIPPED' } }]; }\nif (/<details\\s+class=\"faq-item\"/i.test(articleHtml) || /<div\\s+class=\"faq-item\"/i.test(articleHtml)) { return [{ json: { ...ctx, article_json: { ...articleJson, article: articleHtml }, article: { ...articleJson, article: articleHtml }, article_html: articleHtml, faqs_injected: 0, faq_already_present: true, phase_status: 'FAQ_INJECT_SKIPPED' } }]; }\nlet faqs = [];\nif (Array.isArray(articleJson.faqs) && articleJson.faqs.length > 0) {\n  faqs = articleJson.faqs.map(f => ({ question: String(f.question || f.title || '').trim(), answer: String(f.answer || f.snippet || f.description || '').trim() }));\n}\nif (!faqs.length && Array.isArray(redditFaqs) && redditFaqs.length > 0) {\n  faqs = redditFaqs.map(r => {\n    const q = String(r.question || r.title || '').trim();\n    const a = String(r.answer || r.snippet || r.description || '').trim() || `See the related discussion at ${r.source_url || r.url || 'our site'}.`;\n    return { question: q, answer: a };\n  }).filter(f => f.question && f.answer);\n}\nif (!faqs.length && Array.isArray(faqPlan) && faqPlan.length > 0) {\n  faqs = faqPlan.map(q => {\n    const question = typeof q === 'string' ? q : (q.question || q.title || '');\n    const answer = typeof q === 'string' ? `This is a common question about ${ctx.keyword || 'this topic'}.` : (q.answer || q.snippet || '');\n    return { question: String(question).trim(), answer: String(answer).trim() };\n  }).filter(f => f.question && f.answer);\n}\nfaqs = faqs.filter(f => f.question && f.answer && f.question.length > 5).slice(0, 6);\nif (faqs.length === 0) { return [{ json: { ...ctx, article_json: { ...articleJson, article: articleHtml }, article: { ...articleJson, article: articleHtml }, article_html: articleHtml, faqs_injected: 0, faq_inject_skipped_reason: 'no FAQ source available', phase_status: 'FAQ_INJECT_SKIPPED' } }]; }\nfunction escapeHtml(s) { return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\"/g, '&quot;'); }\nconst faqHtml = faqs.map(f => {\n  const q = escapeHtml(f.question);\n  const a = escapeHtml(f.answer);\n  return `<details class=\"faq-item\"><summary class=\"faq-question\">${q}</summary><div class=\"faq-answer\"><p>${a}</p></div></details>`;\n}).join('\\n');\nconst faqSection = `\\n${faqHtml}\\n`;\nconst faqHeadingRegex = /(<h2[^>]*>\\s*(?:[^<]*?)frequently\\s+asked\\s+questions?[^<]*?<\\/h2>)/i;\nif (faqHeadingRegex.test(articleHtml)) {\n  articleHtml = articleHtml.replace(faqHeadingRegex, `$1\\n${faqSection}`);\n} else {\n  articleHtml += `\\n<h2>Frequently Asked Questions</h2>\\n${faqSection}`;\n}\nreturn [{ json: { ...ctx, article_json: { ...articleJson, article: articleHtml }, article: { ...articleJson, article: articleHtml }, article_html: articleHtml, faqs_injected: faqs.length, faq_source_used: redditFaqs.length ? 'gemini' : (faqPlan.length ? 'plan' : 'articleJson'), phase_status: 'FAQ_INJECTED' } }];"
+      },
+      "id": "327a5aac-dcf0-461c-b945-8dbcc9c3190b",
+      "name": "Inject FAQ Block",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5216,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "let ctx = $json || {};\ntry { const i = $('🧩 Inject FAQ Block').first().json; if (i) ctx = { ...i, ...ctx }; } catch (e) {}\ntry { const pp = $('📋 Parse Plan').first().json; if (pp) { if (!ctx.writer_context && pp.writer_context) ctx.writer_context = pp.writer_context; if (!ctx.keyword && pp.keyword) ctx.keyword = pp.keyword; if (!ctx.site_url && pp.site_url) ctx.site_url = pp.site_url; if (!ctx.topic_id && pp.topic_id) ctx.topic_id = pp.topic_id; } } catch (e) {}\nconst source = ctx.article_json || ctx.article || {};\nlet articleHtml = '';\nif (typeof source === 'string') articleHtml = source;\nelse if (typeof source === 'object' && source !== null) articleHtml = String(source.article || source.article_html || '');\nif (!articleHtml && typeof ctx.article_html === 'string') articleHtml = ctx.article_html;\nif (!articleHtml || articleHtml.length < 200) { return [{ json: { ...ctx, quality_passed: false, qa_reason: 'article_missing', word_count: 0, h1_count: 0, h2_count: 0, h3_count: 0, phase_status: 'ARTICLE_QA_FAILED' } }]; }\nfunction htmlToText(html) { return String(html || '').replace(/<script[\\s\\S]*?<\\/script>/gi, ' ').replace(/<style[\\s\\S]*?<\\/style>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/gi, ' ').replace(/&amp;/gi, '&').replace(/&quot;/gi, '\"').replace(/&#39;/gi, \"'\").replace(/\\s+/g, ' ').trim(); }\nconst dashFix = s => typeof s === 'string' ? s.replace(/(\\d)\\s*[\\u2013\\u2014]\\s*(\\d)/g, '$1-$2').replace(/\\s*[\\u2013\\u2014]\\s*/g, ', ').replace(/,\\s*,/g, ',') : s;\nconst subjWord = String(ctx.writer_context?.blogTitle || ctx.title || '').split(':')[0].trim().split(/\\s+/).pop().replace(/[^A-Za-z]/g, '');\nconst apFix = s => (typeof s === 'string' && subjWord.length > 2) ? s.replace(new RegExp('\\\\b' + subjWord + 's\\\\b', 'g'), subjWord + \"'s\") : s;\nconst fixText = s => apFix(dashFix(s));\narticleHtml = fixText(articleHtml);\nconst plain = htmlToText(articleHtml);\nconst words = plain ? plain.split(/\\s+/).filter(Boolean).length : 0;\nconst h1Count = (articleHtml.match(/<h1\\b/gi) || []).length;\nconst h2Count = (articleHtml.match(/<h2\\b/gi) || []).length;\nconst h3Count = (articleHtml.match(/<h3\\b/gi) || []).length;\nconst targetMin = ctx.writer_context?.wordCountRange?.min || 1200;\nconst bodyMax = ctx.writer_context?.wordCountRange?.max || 2200;\nconst minAcceptedWords = Math.max(800, Math.round(targetMin * 0.85));\nconst targetMax = bodyMax + 900;\nconst wordCountValid = words >= minAcceptedWords && words <= targetMax;\nconst h1Valid = h1Count === 1;\nconst h2Valid = h2Count >= 4 && h2Count <= 12;\nconst hasFaq = /<details\\s+class=\"faq-item\"/i.test(articleHtml) || /<div\\s+class=\"faq-item\"/i.test(articleHtml) || /<h2[^>]*>[\\s\\S]*?frequently\\s+asked\\s+questions?[\\s\\S]*?<\\/h2>/i.test(articleHtml);\nconst faqValid = hasFaq;\nconst qualityPassed = wordCountValid && h1Valid && h2Valid && faqValid;\nconst articleObj = (typeof source === 'object' && source !== null) ? { ...source, article: articleHtml } : { article: articleHtml };\nfor (const k of ['title', 'metaTitle', 'metaDescription', 'excerpt']) { if (typeof articleObj[k] === 'string') articleObj[k] = fixText(articleObj[k]); }\n\nconst normSeo = s => String(s || '').toLowerCase().replace(/['\\u2019]s\\b/g, '').replace(/[^a-z0-9\\s]/g, ' ').replace(/\\s+/g, ' ').trim();\nconst pkSeo = normSeo(ctx.writer_context?.primaryKeyword || ctx.primary_keyword || ctx.keyword);\nconst secSeo = (ctx.writer_context?.secondaryKeywords || ctx.secondary_keywords || []).map(k => normSeo(typeof k === 'string' ? k : k.keyword)).filter(Boolean);\nconst textSeo = normSeo(plain);\nconst h1Seo = normSeo((articleHtml.match(/<h1\\b[^>]*>([\\s\\S]*?)<\\/h1>/i) || [])[1] || '');\nconst h2Seo = [...articleHtml.matchAll(/<h2\\b[^>]*>([\\s\\S]*?)<\\/h2>/gi)].map(m => normSeo(m[1].replace(/<[^>]+>/g, '')));\nconst first100Seo = textSeo.split(' ').slice(0, 100).join(' ');\nconst metaDescSeo = String(articleObj.metaDescription || '');\nconst titleLenSeo = String(articleObj.metaTitle || articleObj.title || '').length;\nconst kwCountSeo = pkSeo ? textSeo.split(pkSeo).length - 1 : 0;\nconst densitySeo = words && pkSeo ? (kwCountSeo * pkSeo.split(' ').length / words) * 100 : 0;\nconst secUsedSeo = secSeo.length ? secSeo.filter(k => textSeo.includes(k)).length / secSeo.length : 0;\nconst sentSeo = plain.split(/(?<=[.!?])\\s+/).filter(Boolean);\nconst avgSentSeo = sentSeo.length ? words / sentSeo.length : 0;\nconst paraLens = [...articleHtml.matchAll(/<p\\b[^>]*>([\\s\\S]*?)<\\/p>/gi)].map(m => m[1].replace(/<[^>]+>/g, ' ').split(/\\s+/).filter(Boolean).length);\nconst avgParaSeo = paraLens.length ? paraLens.reduce((a, b) => a + b, 0) / paraLens.length : 0;\nconst minWordsSeo = Number(ctx.writer_context?.wordCountRange?.min || 2500);\nconst seoChecks = [\n  ['Primary keyword in H1', pkSeo && h1Seo.includes(pkSeo) ? 1 : 0, 8],\n  ['Primary keyword in first 100 words', pkSeo && first100Seo.includes(pkSeo) ? 1 : 0, 6],\n  ['Primary keyword in an H2', pkSeo && h2Seo.some(h => h.includes(pkSeo)) ? 1 : 0, 6],\n  ['Primary keyword in meta description', pkSeo && normSeo(metaDescSeo).includes(pkSeo) ? 1 : 0, 4],\n  ['Keyword density 0.4-2.5%', densitySeo >= 0.4 && densitySeo <= 2.5 ? 1 : 0, 6],\n  ['Secondary keywords used', Math.min(1, secUsedSeo / 0.6), 9],\n  ['Word count reaches the target', Math.min(1, words / minWordsSeo), 10],\n  ['Title length 40-65 characters', titleLenSeo >= 40 && titleLenSeo <= 65 ? 1 : 0, 3],\n  ['Meta description 130-165 characters', metaDescSeo.length >= 130 && metaDescSeo.length <= 165 ? 1 : 0, 4],\n  ['6-12 H2 sections', h2Count >= 6 && h2Count <= 12 ? 1 : (h2Count >= 4 ? 0.5 : 0), 5],\n  ['Has H3 sub-headings', h3Count > 0 ? 1 : 0, 3],\n  ['Has a table', /<table\\b/i.test(articleHtml) ? 1 : 0, 5],\n  ['Has lists', /<(ul|ol)\\b/i.test(articleHtml) ? 1 : 0, 4],\n  ['Has a Conclusion section', h2Seo.some(h => /^(conclusion|final thoughts)/.test(h)) ? 1 : 0, 6],\n  ['Has an FAQ section', hasFaq ? 1 : 0, 6],\n  ['Short paragraphs (avg under 90 words)', avgParaSeo > 0 && avgParaSeo <= 90 ? 1 : 0, 4],\n  ['Easy sentences (avg under 22 words)', avgSentSeo > 0 && avgSentSeo <= 22 ? 1 : 0, 5],\n  ['No em or en dashes', /[\\u2013\\u2014]/.test(articleHtml) ? 0 : 1, 2]\n];\nconst seoMax = seoChecks.reduce((a, c) => a + c[2], 0);\nconst seoEarned = seoChecks.reduce((a, c) => a + c[1] * c[2], 0);\nconst seoScore = Math.round((seoEarned / seoMax) * 100);\nconst seoReport = seoChecks.map(c => ({ check: c[0], score: Math.round(c[1] * 100) / 100, weight: c[2] }));\nconst reasons = [];\nif (!wordCountValid) reasons.push(`word_count ${words} not in [${minAcceptedWords}, ${targetMax}]`);\nif (!h1Valid) reasons.push(`h1_count is ${h1Count} (expected 1)`);\nif (!h2Valid) reasons.push(`h2_count is ${h2Count} (expected 4-12)`);\nif (!faqValid) reasons.push(`no FAQ section detected`);\nreturn [{ json: { ...ctx, article: articleObj, article_json: { ...(ctx.article_json || {}), ...articleObj, article: articleHtml }, article_html: articleHtml, quality_passed: qualityPassed, qa_reason: qualityPassed ? '' : reasons.join('; '), word_count: words, h1_count: h1Count, h2_count: h2Count, h3_count: h3Count, has_faq: hasFaq, word_count_range: { min_accepted: minAcceptedWords, max_accepted: targetMax }, seo_score: seoScore, seo_report: seoReport, keyword_density: Math.round(densitySeo * 100) / 100, avg_sentence_words: Math.round(avgSentSeo * 10) / 10, phase_status: qualityPassed ? 'ARTICLE_QA_PASSED' : 'ARTICLE_QA_FAILED' } }];"
+      },
+      "id": "4c4b3120-bb38-44e5-ace0-1bbe1e5b345d",
+      "name": "✅ Validate Article",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5408,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "q1",
+              "leftValue": "={{ $json.quality_passed }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "d6b95831-121f-4f88-86ea-aa32673200fa",
+      "name": "❓ Quality Passed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        5616,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "1pJZ1IWoJ8js13NEzKJ3YOvoeEF7jbOV1Ghsyz9_t5Fs",
+          "mode": "list"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "BlogTopics"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "status": "NEEDS_REVIEW",
+            "seo_qa_score": "={{ $json.word_count }}",
+            "last_stage": "ARTICLE_QA",
+            "last_error": "={{ $json.qa_reason }}",
+            "updated_at": "={{ $now.toISO() }}",
+            "topic_id": "={{ $json.topic_id }}",
+            "row_number": 0
+          },
+          "matchingColumns": [
+            "topic_id"
+          ],
+          "schema": [
+            {
+              "id": "topic_id",
+              "displayName": "topic_id",
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "type": "string"
+            },
+            {
+              "id": "seo_qa_score",
+              "displayName": "seo_qa_score",
+              "type": "string"
+            },
+            {
+              "id": "last_stage",
+              "displayName": "last_stage",
+              "type": "string"
+            },
+            {
+              "id": "last_error",
+              "displayName": "last_error",
+              "type": "string"
+            },
+            {
+              "id": "updated_at",
+              "displayName": "updated_at",
+              "type": "string"
+            },
+            {
+              "id": "row_number",
+              "displayName": "row_number",
+              "type": "number",
+              "readOnly": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "3ca9a7da-0121-49ce-b5c8-7e5dd966232c",
+      "name": "📊 Mark QA FAILED",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        5920,
+        128
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "4we9x6TPgRKR5VIc",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const ctx = $json;\nconst a = ctx.article || {};\nconst imageCount = Math.max(1, Number(ctx.image_count || 4));\nconst primaryKeyword = String(ctx.keyword || '').trim();\nconst articleType = String(ctx.article_type || 'concept').toLowerCase();\n\n// Prefer image_queries from plan; fall back to smart defaults\nlet rawQueries = Array.isArray(a.imageQueries) && a.imageQueries.length ? a.imageQueries : [];\nif (!rawQueries.length && Array.isArray(ctx.image_queries) && ctx.image_queries.length) rawQueries = ctx.image_queries;\nif (!rawQueries.length) {\n  if (articleType === 'person') {\n    rawQueries = [`${primaryKeyword} portrait`, `${primaryKeyword} official photo`, `${primaryKeyword} speech`, `${primaryKeyword} recent`];\n  } else if (articleType === 'product') {\n    rawQueries = [`${primaryKeyword} product photo`, `${primaryKeyword} closeup`, `${primaryKeyword} in use`, `${primaryKeyword} box`];\n  } else if (articleType === 'howto') {\n    rawQueries = [`${primaryKeyword} step by step`, `${primaryKeyword} illustration`, `${primaryKeyword} example`, `${primaryKeyword} tutorial`];\n  } else {\n    rawQueries = [`${primaryKeyword}`, `${primaryKeyword} concept`, `${primaryKeyword} editorial`, `${primaryKeyword} illustration`];\n  }\n}\nconst output = [];\nfor (let i = 0; i < imageCount; i++) {\n  const q = String(rawQueries[i] || rawQueries[rawQueries.length - 1] || primaryKeyword || 'blog image').trim();\n  output.push({ json: { ...ctx, imageIndex: i, imageRole: i === 0 ? 'featured' : 'contextual', imageQuery: q, imageQueryEncoded: encodeURIComponent(q), articleSection: i === 0 ? 'featured' : 'body' } });\n}\nreturn output;"
+      },
+      "id": "c4eca875-8271-4bf4-8dc5-5732a9d19f2e",
+      "name": "🖼️ Prepare Image Searches",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5808,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://playwright:3000/google-image",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ query: $json.imageQuery, count: 5 }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 120000
+        }
+      },
+      "id": "6e6ed3b8-a229-4847-9629-ab66c417401b",
+      "name": "🔍 Google Images Search",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        6016,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const cleanImgTitle = (t, fallback) => { let s = String(t || '').split(/\\s[|\\u2013\\u2014-]\\s/)[0].replace(/[.\\u2026]+$/, '').replace(/\\s+/g, ' ').trim(); if (s.length < 8 || s.length > 110) s = String(fallback || '').trim(); return s; };\n// 🖼️ Select Google Image\n// Input: one item per query (from 🔍 Google Images Search)\n// Output: one item per query WITH a clean, usable image (empty queries skipped)\n\nconst ctxItems = $('🖼️ Prepare Image Searches').all();\nconst inputItems = $input.all();\nconst out = [];\n\n// Hosts that always serve watermarked stock photos\nconst stockHosts = [\n  'gettyimages.com', 'istockphoto.com', 'shutterstock.com',\n  'alamy.com', 'dreamstime.com', 'depositphotos.com',\n  '123rf.com', 'stock.adobe.com', 'adobe.com/stock',\n  'vectorstock.com', 'bigstockphoto.com', 'canstockphoto.com'\n];\n\n// Junk that never belongs in a blog image\nconst junkWords = [\n  'logo', 'icon', 'sprite', 'banner', 'button',\n  'flag-thumb', 'avatar', 'placeholder'\n];\n\n// Encode a URL so n8n's HTTP Request node accepts it.\nfunction safeUrl(u) {\n  if (!u || typeof u !== 'string') return u;\n  try {\n    const p = new URL(u);\n    p.pathname = p.pathname\n      .replace(/'/g, '%27')\n      .replace(/ /g, '%20')\n      .replace(/\\(/g, '%28')\n      .replace(/\\)/g, '%29');\n    return p.toString();\n  } catch {\n    return String(u)\n      .replace(/'/g, '%27')\n      .replace(/ /g, '%20')\n      .replace(/\\(/g, '%28')\n      .replace(/\\)/g, '%29');\n  }\n}\n\nfor (let i = 0; i < inputItems.length; i++) {\n  const resp = inputItems[i]?.json || {};\n  const meta = ctxItems[i]?.json || {};\n\n  const candidates = Array.isArray(resp.images) ? resp.images : [];\n\n  const filtered = candidates.filter(im => {\n    const url = String(im.url || '').toLowerCase();\n    if (!url.startsWith('http')) return false;\n    if (stockHosts.some(h => url.includes(h))) return false;\n    if (junkWords.some(w => url.includes(w))) return false;\n    return true;\n  });\n\n  const picked = filtered[0] || candidates[0];\n\n  // ---- No usable image → SKIP this query (do not emit) ----\n  if (!picked || !picked.url) {\n    console.warn(`[select] no clean image for query \"${meta.imageQuery || resp.query || i}\"`);\n    continue;\n  }\n\n  const base = String(meta.imageQuery || resp.query || 'blog')\n    .toLowerCase()\n    .replace(/[^a-z0-9]+/g, '-')\n    .replace(/^-|-$/g, '')\n    .slice(0, 60) || 'blog';\n\n  const cleanDownload = safeUrl(picked.downloadUrl || picked.url);\n  const cleanSource   = safeUrl(picked.url);\n  const cleanOriginal = safeUrl(picked.originalUrl || picked.url);\n\n  out.push({\n    json: {\n      imageFound: true,\n      imageIndex: i,\n      imageRole: i === 0 ? 'featured' : 'contextual',\n      imageQuery: meta.imageQuery || resp.query || '',\n      articleSection: meta.articleSection || '',\n\n      downloadUrl: cleanDownload,\n      sourceUrl: cleanSource,\n      originalUrl: cleanOriginal,\n\n      source: picked.source || 'duckduckgo',\n      width: picked.width || 0,\n      height: picked.height || 0,\n\n      filename: `${base}-${i + 1}.jpg`,\n      title: cleanImgTitle(picked.title, meta.imageQuery).slice(0, 120),\n      altText: cleanImgTitle(picked.title, meta.imageQuery).slice(0, 160),\n      caption: '',\n      description: `${meta.imageQuery || ''}. Section: ${meta.articleSection || ''}.`,\n\n      stockFilteredCount: candidates.length - filtered.length,\n      candidateCount: candidates.length,\n      cleanCount: filtered.length\n    }\n  });\n}\n\n// If nothing survived, emit an explicit empty-marker so the IF node can route\nif (out.length === 0) {\n  console.warn('[select] no clean images across any query');\n  return [{ json: { imageFound: false, reason: 'NO_CLEAN_IMAGES' } }];\n}\n\nconsole.log(`[select] emitted ${out.length} clean image(s)`);\nreturn out;"
+      },
+      "id": "97799334-976a-457a-aeea-dcfe1fb20b08",
+      "name": "🖼️ Select Google Image",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5936,
+        848
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.downloadUrl || \"\" }}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true,
+              "responseFormat": "file"
+            }
+          },
+          "timeout": 60000
+        }
+      },
+      "id": "f82f89c5-9548-43ea-9773-50fa76cd4517",
+      "name": "🖼️ Download Image",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        6144,
+        848
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const cfg = $('⚙️ Config').first().json;\nconst width = Number(cfg.image_width || 1600);\nconst height = Number(cfg.image_height || 900);\nconst quality = Number(cfg.image_jpeg_quality || 85);\nconst binary = $input.first().binary;\nif (!binary || !binary.data) return [{ json: { ...$json, crop_ok: false, crop_error: 'no binary input' } }];\nreturn [{ json: { ...$json, crop_width: width, crop_height: height, crop_quality: quality, crop_ok: true }, binary }];"
+      },
+      "id": "39f6f717-331e-4537-85e2-300045eba7bc",
+      "name": "🖼️ Crop Image Prep",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        6352,
+        848
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://playwright:3000/crop",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-target-width",
+              "value": "={{ $json.crop_width }}"
+            },
+            {
+              "name": "x-target-height",
+              "value": "={{ $json.crop_height }}"
+            },
+            {
+              "name": "x-jpeg-quality",
+              "value": "={{ $json.crop_quality }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "binaryData",
+        "inputDataFieldName": "data",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true,
+              "responseFormat": "file"
+            }
+          },
+          "timeout": 120000
+        }
+      },
+      "id": "5f86221a-db56-4526-ac5d-950c1fc8453c",
+      "name": "🖼️ Crop Image (16:9)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        6544,
+        848
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('📥 Parse Article').first().json.site_url + '/wp-json/wp/v2/media' }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Disposition",
+              "value": "={{ 'attachment; filename=\"' + $('🖼️ Select Google Image').item.json.filename + '\"' }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "image/jpeg"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "binaryData",
+        "inputDataFieldName": "data",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 120000
+        }
+      },
+      "id": "e698ead7-21fa-48a8-83f7-87c9b518a5b6",
+      "name": "🖼️ Upload to WP Media",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        6768,
+        848
+      ],
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "RlhjzF06K3kLBnbx",
+          "name": "wordpressApp"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('📥 Parse Article').first().json.site_url + '/wp-json/wp/v2/media/' + $json.id }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ title: $('🖼️ Select Google Image').item.json.title, alt_text: $('🖼️ Select Google Image').item.json.altText, description: $('🖼️ Select Google Image').item.json.description }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 120000
+        }
+      },
+      "id": "7b3286e7-0b2d-4564-bbdd-1849e453685c",
+      "name": "🖼️ Set Image Metadata",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        6976,
+        848
+      ],
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "RlhjzF06K3kLBnbx",
+          "name": "wordpressApp"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const selected = $('🖼️ Select Google Image').all();\nconst uploaded = $input.all();\nlet ctx = {};\ntry {\n  const validated = $('✅ Validate Article').first().json;\n  if (validated && (validated.article_html || validated.article)) ctx = validated;\n} catch (e) {}\nif (!ctx.article_html && !ctx.article) {\n  try { const injected = $('🧩 Inject FAQ Block').first().json; if (injected && (injected.article_html || injected.article)) ctx = injected; } catch (e) {}\n}\nconst media = uploaded.map((it, i) => {\n  const s = selected[i]?.json || {};\n  const r = it.json || {};\n  return { id: r.id || null, url: r.source_url || r.guid?.rendered || null, role: s.imageRole, imageIndex: s.imageIndex, altText: s.altText, title: s.title, caption: s.caption, description: s.description, articleSection: s.articleSection, source: 'google-images' };\n}).filter(x => x.id && x.url);\nconst featured = media.find(x => x.role === 'featured') || media[0];\nconst hasFaq = /<details\\s+class=\"faq-item\"/i.test(String(ctx.article_html || ctx.article?.article || '')) || /<div\\s+class=\"faq-item\"/i.test(String(ctx.article_html || ctx.article?.article || ''));\nconsole.log('Collect Media — FAQ present:', hasFaq, '| media count:', media.length);\nreturn [{ json: { ...ctx, media, featuredMediaId: featured?.id || null, imageMediaIds: media.map(x => x.id), has_faq_in_collect_media: hasFaq, phase_status: 'MEDIA_READY' } }];"
+      },
+      "id": "9c84c3d9-2f36-4d13-aeb4-0d1b5e41dbe5",
+      "name": "🖼️ Collect Media",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        7184,
+        848
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const ctx = $json;\nlet html = '';\nif (typeof ctx.article_html === 'string' && ctx.article_html.length > 200) html = ctx.article_html;\nelse if (ctx.article && typeof ctx.article === 'object') html = String(ctx.article.article || ctx.article.article_html || '');\nelse if (typeof ctx.article === 'string' && ctx.article.length > 200) html = ctx.article;\nif (!html && ctx.article_json?.article) html = String(ctx.article_json.article);\nif (!html || html.length < 200) { return [{ json: { ...ctx, article: { article: '' }, article_html: '', enrich_error: 'No HTML found', phase_status: 'ENRICH_FAILED' } }]; }\n\n// ─────── Clean up <img> tags (responsive fix) ───────\nhtml = html.replace(/<img\\b[^>]*>/gi, (tag) => {\n  return tag.replace(/\\s(width|height)=\"[^\"]*\"/gi, '').replace(/\\sstyle=\"[^\"]*\"/gi, '').replace(/<img\\b/gi, '<img class=\"wp-responsive-image\" data-responsive=\"true\"');\n});\nhtml = html.replace(/style=\"\"/gi, '');\n\n// ─────── ONLY ONE LINK TOTAL (internal preferred, external fallback) ───────\nconst internal = Array.isArray(ctx.internal_link_candidates) ? ctx.internal_link_candidates : [];\nconst external = Array.isArray(ctx.external_link_candidates) ? ctx.external_link_candidates : [];\nlet internalInjected = 0;\nlet externalInjected = 0;\n{\n  const cfgLinks = $('⚙️ Config').first().json;\n  const wantInternal = internal.filter(l => l.url).slice(0, Number(cfgLinks.internal_links_target || 3));\n  const wantExternal = external.filter(l => l.url).slice(0, Number(cfgLinks.external_links_target || 2));\n  const links = [...wantInternal.map(l => ({ ...l, kind: 'internal' })), ...wantExternal.map(l => ({ ...l, kind: 'external' }))];\n  const paras = (html.match(/<p>(?:(?!<\\/p>)[\\s\\S]){120,}?<\\/p>/gi) || []).slice(2);\n  const usedParas = new Set();\n  links.forEach((link, i) => {\n    if (!paras.length) return;\n    let idx = Math.min(paras.length - 1, Math.floor(((i + 0.5) * paras.length) / links.length));\n    while (usedParas.has(idx) && idx < paras.length - 1) idx++;\n    if (usedParas.has(idx)) return;\n    usedParas.add(idx);\n    const p = paras[idx];\n    const anchor = String(link.kind === 'internal' ? (link.title || link.slug || 'related article') : (link.anchor_text || link.domain || 'source')).replace(/<[^>]+>/g, '').slice(0, 80);\n    const a = link.kind === 'internal'\n      ? ' Related: <a href=\"' + link.url + '\">' + anchor + '</a>.'\n      : ' Source: <a href=\"' + link.url + '\" rel=\"noopener\" target=\"_blank\">' + anchor + '</a>.';\n    html = html.replace(p, p.replace(/<\\/p>$/, a + '</p>'));\n    if (link.kind === 'internal') internalInjected++; else externalInjected++;\n  });\n}\nconst cfg = $('⚙️ Config').first().json;\nconst stripCaption = cfg.strip_caption === true || cfg.strip_pexels_caption === true;\nconst featured = Array.isArray(ctx.media) ? ctx.media.find(m => m.role === 'featured') : null;\nif (featured?.url) {\n  const cleanCaption = stripCaption ? '' : String(featured.caption || '');\n  const figcap = cleanCaption ? `<figcaption style=\"text-align:center !important;font-size:0.875em;color:#666;margin-top:0.5em;\">${cleanCaption}</figcaption>` : '';\n  const fig = `<figure class=\"wp-block-image size-large\" style=\"max-width:800px !important;width:100% !important;margin:1.5em auto !important;text-align:center;overflow:hidden;\">\n<img class=\"wp-responsive-image\" style=\"width:100% !important;max-width:100% !important;height:auto !important;display:block !important;margin:0 auto !important;border-radius:8px;\" src=\"${featured.url}\" alt=\"${String(featured.altText || '').replace(/\"/g, '&quot;')}\" loading=\"eager\" decoding=\"async\" />\n${figcap}\n</figure>`;\n  if (!html.includes(featured.url)) {\n    if (/<h1[^>]*>[\\s\\S]*?<\\/h1>/i.test(html)) { html = html.replace(/(<h1[^>]*>[\\s\\S]*?<\\/h1>)/i, `$1\\n${fig}`); }\n    else { html = fig + '\\n' + html; }\n  }\n}\n\nlet quickInfo = [];\ntry {\n  if (ctx.article_json && Array.isArray(ctx.article_json.quick_info)) quickInfo = ctx.article_json.quick_info;\n  if (!quickInfo.length && Array.isArray(ctx.quick_info)) quickInfo = ctx.quick_info;\n  if (!quickInfo.length) {\n    try { const plan = $('📋 Parse Plan').first().json; if (plan && Array.isArray(plan.quick_info)) quickInfo = plan.quick_info; } catch (e) {}\n  }\n} catch (e) { quickInfo = []; }\n\nlet quickInfoInjected = false;\nif (Array.isArray(quickInfo) && quickInfo.length >= 3) {\n  const rows = quickInfo.filter(f => f && f.label && f.value).map(f => {\n    const label = String(f.label).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\n    const value = String(f.value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\n    return `<tr><th scope=\"row\">${label}</th><td>${value}</td></tr>`;\n  }).join('\\n');\n  const tableHtml = `<div class=\"quick-info-wrapper\" style=\"max-width:800px !important;margin:1.5em auto !important;\">\n<div class=\"quick-info-header\" style=\"background:#f5f5f5;padding:0.75em 1em;border-radius:8px 8px 0 0;font-weight:600;font-size:1.05em;border:1px solid #e0e0e0;border-bottom:none;\">Quick Information</div>\n<table class=\"quick-info-table\" style=\"width:100% !important;border-collapse:collapse;background:#fff;border:1px solid #e0e0e0;border-radius:0 0 8px 8px;overflow:hidden;\">\n<tbody>\n${rows}\n</tbody>\n</table>\n</div>`;\n  if (featured?.url && html.includes(featured.url)) {\n    const featuredUrlEscaped = featured.url.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&');\n    const figRegex = new RegExp(`(<figure[^>]*>[\\\\s\\\\S]*?${featuredUrlEscaped}[\\\\s\\\\S]*?<\\\\/figure>)`, 'i');\n    if (figRegex.test(html)) { html = html.replace(figRegex, `$1\\n${tableHtml}`); quickInfoInjected = true; }\n  }\n  if (!quickInfoInjected && /<\\/h1>/i.test(html)) { html = html.replace(/(<\\/h1>)/i, `$1\\n${tableHtml}`); quickInfoInjected = true; }\n  if (!quickInfoInjected) { html = tableHtml + '\\n' + html; quickInfoInjected = true; }\n}\n\nhtml = html.replace(/<h1\\b[^>]*>[\\s\\S]*?<\\/h1>\\s*/i, '');\n\nconst contextual = Array.isArray(ctx.media) ? ctx.media.filter(m => m.role === 'contextual') : [];\nlet contextualInserted = 0;\nconst contextFigs = [];\nfor (const m of contextual) {\n  if (!m.url) continue;\n  if (html.includes(m.url)) continue;\n  const cleanCaption = stripCaption ? '' : String(m.caption || '');\n  const figcap = cleanCaption ? `<figcaption style=\"text-align:center !important;font-size:0.875em;color:#666;margin-top:0.5em;\">${cleanCaption}</figcaption>` : '';\n  const fig = `<figure class=\"wp-block-image size-large\" style=\"max-width:800px !important;width:100% !important;margin:1.5em auto !important;text-align:center;overflow:hidden;\">\n<img class=\"wp-responsive-image\" style=\"width:100% !important;max-width:100% !important;height:auto !important;display:block !important;margin:0 auto !important;border-radius:8px;\" src=\"${m.url}\" alt=\"${String(m.altText || '').replace(/\"/g, '&quot;')}\" loading=\"lazy\" decoding=\"async\" />\n${figcap}\n</figure>`;\n  contextFigs.push(fig);\n  contextualInserted++;\n}\nif (contextFigs.length > 0) {\n  const faqHeadingRegex = /(<h2[^>]*>\\s*(?:[^<]*?)frequently\\s+asked\\s+questions?[^<]*?<\\/h2>)/i;\n  const combined = contextFigs.join('\\n');\n  if (faqHeadingRegex.test(html)) { html = html.replace(faqHeadingRegex, `${combined}\\n$1`); }\n  else { html += `\\n${combined}`; }\n}\n\nconst originalArticleObj = typeof ctx.article === 'object' && ctx.article !== null ? ctx.article : {};\nconst enrichedArticle = { ...originalArticleObj, article: html };\nconst hasFaqInOutput = /<details\\s+class=\"faq-item\"/i.test(html) || /<div\\s+class=\"faq-item\"/i.test(html);\nconsole.log('Enrich Article HTML — FAQ:', hasFaqInOutput, '| Quick Info:', quickInfoInjected, '| rows:', quickInfo.length);\n\nreturn [{ json: { ...ctx, article: enrichedArticle, article_json: { ...(ctx.article_json || {}), article: html, quick_info: quickInfo }, article_html: html, internal_links_injected: internalInjected, external_links_injected: externalInjected, contextual_images_inserted: contextualInserted, quick_info_injected: quickInfoInjected, quick_info_rows: quickInfo.length, has_faq_after_enrich: hasFaqInOutput, responsive_fixed: true, image_source: 'google-images', phase_status: 'ARTICLE_ENRICHED' } }];"
+      },
+      "id": "4e6eb91b-6742-49c7-aa09-5738c7951f9e",
+      "name": "🎨 Enrich Article HTML",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        7392,
+        848
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const ctx = $json;\nconst enrichedWrapper = (ctx.article && typeof ctx.article === 'object') ? ctx.article : {};\nconst originalArticle = (ctx.article_json && typeof ctx.article_json === 'object') ? ctx.article_json : {};\nconst article = { ...originalArticle, article: String(enrichedWrapper.article || ctx.article_html || originalArticle.article || '') };\nif (!article.article || article.article.length < 200) { return [{ json: { ...ctx, post_payload: null, prep_error: 'No HTML content found', phase_status: 'WP_PAYLOAD_FAILED' } }]; }\nconst site = String(ctx.site_url || '').replace(/\\/+$/, '');\nconst slug = String(article.slug || '').trim() || String(article.title || ctx.keyword || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');\nconst canonical = site && slug ? `${site}/${slug}/` : site;\nreturn [{ json: { ...ctx, post_payload: { title: article.title || ctx.keyword, content: article.article, excerpt: article.excerpt || article.metaDescription || '', slug, status: ((ctx.auto_publish_requested === true) && String($('⚙️ Config').first().json.auto_publish_mode || '') === 'auto_publish') ? 'publish' : 'draft', featured_media: ctx.featuredMediaId || 0 }, canonical_url: canonical, seo_meta: { seo_title: article.metaTitle || article.title || ctx.keyword, meta_description: article.metaDescription || '', canonical_url: canonical, focus_keyword: ctx.keyword }, phase_status: 'WP_PAYLOAD_READY' } }];"
+      },
+      "id": "d9295ce1-994a-402d-b2ac-571007601cf2",
+      "name": "📦 Prep WP Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        7600,
+        848
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.site_url + '/wp-json/wp/v2/posts' }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.post_payload }}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 120000
+        }
+      },
+      "id": "11af19af-1e3d-4ac4-bdfc-4314a36db08c",
+      "name": "📝 Create WP Draft",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        7808,
+        848
+      ],
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "RlhjzF06K3kLBnbx",
+          "name": "wordpressApp"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const ctx = $('📦 Prep WP Payload').first().json;\nconst r = $json || {};\nconst ok = Boolean(r.id);\nreturn [{ json: { ...ctx, wp_post_id: r.id || null, wp_url: r.link || null, wp_create_ok: ok, wp_response_status: r.status || null, phase_status: ok ? 'WP_DRAFT_CREATED' : 'WP_DRAFT_FAILED', last_error: ok ? '' : (r.message || 'WordPress draft creation failed') } }];"
+      },
+      "id": "8875c50f-ba7d-4aff-bd08-cbf916444ecf",
+      "name": "🔧 Normalize WP Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        8000,
+        848
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "w1",
+              "leftValue": "={{ $json.wp_create_ok }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "7a819493-9153-4fe0-9582-4373e2ccd0ec",
+      "name": "❓ WP Created?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        8208,
+        848
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "1pJZ1IWoJ8js13NEzKJ3YOvoeEF7jbOV1Ghsyz9_t5Fs",
+          "mode": "list"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "BlogTopics"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "status": "NEEDS_REVIEW",
+            "primary_keyword": "={{ $json.keyword }}",
+            "primary_kd": "={{ $json.primary_kd }}",
+            "primary_intent": "={{ $json.search_intent }}",
+            "secondary_keywords": "={{ JSON.stringify(($json.secondary_keywords || []).map(k => typeof k === 'string' ? k : k.keyword).filter(Boolean)) }}",
+            "questions": "={{ JSON.stringify(($json.faq_plan || []).map(f => typeof f === 'string' ? f : f.question).filter(Boolean)) }}",
+            "serp_complexity": "={{ ($json.competitor_stats?.usable || 0) >= 7 ? 'high' : (($json.competitor_stats?.usable || 0) >= 4 ? 'medium' : 'low') }}",
+            "wp_post_id": "={{ $json.wp_post_id }}",
+            "wp_url": "={{ $json.wp_url }}",
+            "slug": "={{ $json.post_payload.slug }}",
+            "seo_title": "={{ $json.seo_meta.seo_title }}",
+            "meta_description": "={{ $json.seo_meta.meta_description }}",
+            "canonical_url": "={{ $json.canonical_url }}",
+            "featured_image_id": "={{ $json.featuredMediaId }}",
+            "image_media_ids": "={{ JSON.stringify($json.imageMediaIds || []) }}",
+            "last_stage": "COMPLETE_DRAFT",
+            "last_execution_id": "={{ $execution.id }}",
+            "updated_at": "={{ $now.toISO() }}",
+            "topic_id": "={{ $json.topic_id }}",
+            "row_number": 0,
+            "seo_qa_score": "={{ 'SEO ' + ($json.seo_score ?? '-') + '/100 | Editorial ' + ($json.average ?? '-') + '/10' }}"
+          },
+          "matchingColumns": [
+            "topic_id"
+          ],
+          "schema": [
+            {
+              "id": "topic_id",
+              "displayName": "topic_id",
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "type": "string"
+            },
+            {
+              "id": "primary_keyword",
+              "displayName": "primary_keyword",
+              "type": "string"
+            },
+            {
+              "id": "primary_kd",
+              "displayName": "primary_kd",
+              "type": "string"
+            },
+            {
+              "id": "primary_intent",
+              "displayName": "primary_intent",
+              "type": "string"
+            },
+            {
+              "id": "secondary_keywords",
+              "displayName": "secondary_keywords",
+              "type": "string"
+            },
+            {
+              "id": "questions",
+              "displayName": "questions",
+              "type": "string"
+            },
+            {
+              "id": "serp_complexity",
+              "displayName": "serp_complexity",
+              "type": "string"
+            },
+            {
+              "id": "wp_post_id",
+              "displayName": "wp_post_id",
+              "type": "string"
+            },
+            {
+              "id": "wp_url",
+              "displayName": "wp_url",
+              "type": "string"
+            },
+            {
+              "id": "slug",
+              "displayName": "slug",
+              "type": "string"
+            },
+            {
+              "id": "seo_title",
+              "displayName": "seo_title",
+              "type": "string"
+            },
+            {
+              "id": "meta_description",
+              "displayName": "meta_description",
+              "type": "string"
+            },
+            {
+              "id": "canonical_url",
+              "displayName": "canonical_url",
+              "type": "string"
+            },
+            {
+              "id": "featured_image_id",
+              "displayName": "featured_image_id",
+              "type": "string"
+            },
+            {
+              "id": "image_media_ids",
+              "displayName": "image_media_ids",
+              "type": "string"
+            },
+            {
+              "id": "last_stage",
+              "displayName": "last_stage",
+              "type": "string"
+            },
+            {
+              "id": "last_execution_id",
+              "displayName": "last_execution_id",
+              "type": "string"
+            },
+            {
+              "id": "updated_at",
+              "displayName": "updated_at",
+              "type": "string"
+            },
+            {
+              "id": "row_number",
+              "displayName": "row_number",
+              "type": "number",
+              "readOnly": true
+            },
+            {
+              "id": "seo_qa_score",
+              "displayName": "seo_qa_score",
+              "type": "string",
+              "canBeUsedToMatch": false
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "5dcfbd1e-557e-4109-95c2-b2ccddc06889",
+      "name": "📊 Final Sheet Update",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        8608,
+        848
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "4we9x6TPgRKR5VIc",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "1pJZ1IWoJ8js13NEzKJ3YOvoeEF7jbOV1Ghsyz9_t5Fs",
+          "mode": "list"
+        },
+        "sheetName": {
+          "__rl": true,
+          "mode": "name",
+          "value": "BlogTopics"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "status": "FAILED",
+            "last_stage": "WORDPRESS_CREATE",
+            "last_error": "={{ $json.last_error }}",
+            "updated_at": "={{ $now.toISO() }}",
+            "topic_id": "={{ $json.topic_id }}",
+            "row_number": 0
+          },
+          "matchingColumns": [
+            "topic_id"
+          ],
+          "schema": [
+            {
+              "id": "topic_id",
+              "displayName": "topic_id",
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "type": "string"
+            },
+            {
+              "id": "last_stage",
+              "displayName": "last_stage",
+              "type": "string"
+            },
+            {
+              "id": "last_error",
+              "displayName": "last_error",
+              "type": "string"
+            },
+            {
+              "id": "updated_at",
+              "displayName": "updated_at",
+              "type": "string"
+            },
+            {
+              "id": "row_number",
+              "displayName": "row_number",
+              "type": "number",
+              "readOnly": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "c3576cb3-7b6c-4df2-8a51-63abfdd6be77",
+      "name": "📊 Mark WP FAILED",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        8640,
+        1088
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "4we9x6TPgRKR5VIc",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { topic_id: $json.topic_id, wp_post_id: $json.wp_post_id, wp_url: $json.wp_url, final_status: 'DRAFT_READY', phase_status: 'DONE' } }];"
+      },
+      "id": "8529fd20-cd7d-40e8-b4e6-7e92bb5bc5db",
+      "name": "🏁 Done",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        8816,
+        848
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Detect which trigger fired and normalize the payload\nconst d = $json || {};\n\n// Error Trigger payload has workflow + execution objects\nif (d.workflow && d.execution) {\n  return [{ json: { _type: 'ERROR', _payload: d } }];\n}\n\n// Webhook payload — check body for status\nconst body = d.body || d;\nconst status = String(body.status || '').toUpperCase();\n\nif (status === 'SUCCESS') {\n  return [{ json: { _type: 'SUCCESS', _payload: body } }];\n}\nif (status === 'STOPPED' || status === 'FAILED') {\n  return [{ json: { _type: 'STOPPED', _payload: body } }];\n}\n\n// Fallback: treat unknown webhook as STOPPED\nreturn [{ json: { _type: 'STOPPED', _payload: body } }];"
+      },
+      "id": "9d003b23-c07b-4c24-883e-2eb1bd321857",
+      "name": "🔀 Classify",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -3424,
+        128
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build HTML email based on _type: ERROR | STOPPED | SUCCESS\n\nconst item = $json;\nconst type = item._type || 'STOPPED';\nconst p = item._payload || {};\n\nfunction esc(s) {\n  return String(s == null ? '' : s)\n    .replace(/&/g, '&amp;')\n    .replace(/</g, '&lt;')\n    .replace(/>/g, '&gt;')\n    .replace(/\"/g, '&quot;')\n    .replace(/'/g, '&#39;');\n}\n\nconst now = new Date().toISOString().replace('T', ' ').replace('Z', ' UTC');\n\nlet headerColor, headerLabel, subject, rows, extraBlock = '';\n\n// ---------- ERROR ----------\nif (type === 'ERROR') {\n  const wf = p.workflow || {};\n  const exec = p.execution || {};\n  const trigger = p.trigger || {};\n  const errorNode = exec.error?.node?.name || trigger.error?.node?.name || exec.lastNodeExecuted || 'Unknown node';\n  const errorMsg = exec.error?.message || trigger.error?.message || 'No error message';\n  const errorName = exec.error?.name || trigger.error?.name || '';\n  const errorStack = (exec.error?.stack || trigger.error?.stack || '').split('\\n').slice(0, 6).join('\\n');\n  const execUrl = exec.url || '';\n\n  headerColor = '#dc2626';\n  headerLabel = 'n8n Workflow ERROR';\n  subject = `[ERROR] ${wf.name || 'SEO Blog'} — ${errorNode}: ${String(errorMsg).slice(0, 70)}`;\n\n  rows = [\n    ['Workflow', esc(wf.name || '')],\n    ['Execution ID', esc(exec.id || '')],\n    ['Failed node', esc(errorNode)],\n    ['Error name', esc(errorName)],\n    ['Error message', esc(errorMsg)],\n    ['Started at', esc(exec.startedAt || '')],\n    ['Stopped at', esc(exec.stoppedAt || '')],\n    ['Reported at', esc(now)]\n  ];\n\n  if (execUrl) {\n    extraBlock = `<div style=\"margin-top:20px;padding:12px 16px;background:#fef2f2;border:1px solid #fecaca;border-radius:6px;font-size:13px;\">\n      <a href=\"${esc(execUrl)}\" style=\"color:#dc2626;text-decoration:none;font-weight:600;\">Open failed execution →</a>\n    </div>`;\n  }\n\n  if (errorStack) {\n    extraBlock += `<div style=\"margin-top:16px;\">\n      <div style=\"font-weight:600;margin-bottom:6px;color:#374151;\">Stack trace (first 6 lines)</div>\n      <pre style=\"background:#111827;color:#e5e7eb;padding:12px;border-radius:6px;overflow:auto;font-size:12px;line-height:1.5;\">${esc(errorStack)}</pre>\n    </div>`;\n  }\n}\n\n// ---------- STOPPED ----------\nelse if (type === 'STOPPED') {\n  const topicId = p.topic_id || '';\n  const keyword = p.keyword || p.topic || '';\n  const reason  = p.reason || p.last_stage || p.phase_status || 'Workflow stopped';\n  const stage   = p.last_stage || p.phase_status || '';\n  const errMsg  = p.last_error || p.qa_reason || p.reason || '';\n\n  headerColor = '#d97706';\n  headerLabel = 'n8n Workflow STOPPED';\n  subject = `[STOPPED] SEO Blog — ${reason}${keyword ? ` — ${keyword}` : ''}`;\n\n  rows = [\n    ['Reason', esc(reason)],\n    ['Stage', esc(stage)],\n    ['Topic ID', esc(topicId)],\n    ['Keyword', esc(keyword)],\n    ['Detail', esc(errMsg)],\n    ['Reported at', esc(now)]\n  ];\n}\n\n// ---------- SUCCESS ----------\nelse {\n  const topicId  = p.topic_id || '';\n  const keyword  = p.keyword || '';\n  const wpUrl    = p.wp_url || '';\n  const wpPostId = p.wp_post_id || '';\n  const wordCount = p.word_count || '';\n  const images   = p.image_count || '';\n\n  headerColor = '#16a34a';\n  headerLabel = 'n8n Workflow SUCCESS';\n  subject = `[SUCCESS] SEO Blog — Draft created${keyword ? `: ${keyword}` : ''}`;\n\n  rows = [\n    ['Topic ID', esc(topicId)],\n    ['Keyword', esc(keyword)],\n    ['Word count', esc(wordCount)],\n    ['Images', esc(images)],\n    ['WP Post ID', esc(wpPostId)],\n    ['WP URL', esc(wpUrl)],\n    ['Reported at', esc(now)]\n  ];\n\n  if (wpUrl) {\n    extraBlock = `<div style=\"margin-top:20px;padding:12px 16px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;font-size:13px;\">\n      <a href=\"${esc(wpUrl)}\" style=\"color:#16a34a;text-decoration:none;font-weight:600;\">Open WordPress draft →</a>\n    </div>`;\n  }\n}\n\nconst rowsHtml = rows.map(([k, v]) =>\n  `<tr>\n     <td style=\"padding:8px 12px;border-bottom:1px solid #e5e7eb;font-weight:600;background:#f9fafb;width:160px;vertical-align:top;\">${k}</td>\n     <td style=\"padding:8px 12px;border-bottom:1px solid #e5e7eb;word-break:break-word;\">${v || '<em>—</em>'}</td>\n   </tr>`\n).join('');\n\nconst html = `<!DOCTYPE html>\n<html>\n<body style=\"margin:0;padding:0;background:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#111827;\">\n  <div style=\"max-width:640px;margin:24px auto;background:#ffffff;border-radius:10px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.08);\">\n    <div style=\"background:${headerColor};padding:16px 20px;color:#ffffff;\">\n      <div style=\"font-size:12px;opacity:0.9;letter-spacing:0.05em;text-transform:uppercase;\">${headerLabel}</div>\n      <div style=\"font-size:18px;font-weight:700;margin-top:4px;\">SEO Blog Automation V7.3</div>\n    </div>\n    <div style=\"padding:8px 8px 16px 8px;\">\n      <table style=\"width:100%;border-collapse:collapse;font-size:14px;\">\n        ${rowsHtml}\n      </table>\n      ${extraBlock}\n      <div style=\"margin-top:16px;font-size:12px;color:#6b7280;\">\n        Automated report from your SEO Blog Automation workflow.\n      </div>\n    </div>\n  </div>\n</body>\n</html>`;\n\nreturn [{ json: { subject, html, _type: type } }];"
+      },
+      "id": "5a61c2b5-3039-4e08-a158-c7c29b1c2b8b",
+      "name": "📝 Format Email",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -3184,
+        128
+      ]
+    },
+    {
+      "parameters": {
+        "fromEmail": "chatgpt.penta@gmail.com",
+        "toEmail": "alimuhammadansar31@gmail.com",
+        "subject": "={{ $json.subject }}",
+        "html": "={{ $json.html }}",
+        "options": {}
+      },
+      "id": "ea4b83f3-592d-4ef8-9e58-71dfa105d64f",
+      "name": "📧 Send Email",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        -2944,
+        128
+      ],
+      "webhookId": "08c83f78-4b26-4bac-861d-d32c04deae53",
+      "credentials": {
+        "smtp": {
+          "id": "yALcsEwH9aw2LAyu",
+          "name": "SMTP account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Detect which trigger fired and normalize the payload\nconst d = $json || {};\n\n// Error Trigger payload has workflow + execution objects\nif (d.workflow && d.execution) {\n  return [{ json: { _type: 'ERROR', _payload: d } }];\n}\n\n// Webhook payload — check body for status\nconst body = d.body || d;\nconst status = String(body.status || '').toUpperCase();\n\nif (status === 'SUCCESS') {\n  return [{ json: { _type: 'SUCCESS', _payload: body } }];\n}\nif (status === 'STOPPED' || status === 'FAILED') {\n  return [{ json: { _type: 'STOPPED', _payload: body } }];\n}\n\n// Fallback: treat unknown webhook as STOPPED\nreturn [{ json: { _type: 'STOPPED', _payload: body } }];"
+      },
+      "id": "3e7387fc-c334-4f23-9f87-1debe2eec01b",
+      "name": "🔀 Classify1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        144,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build HTML email based on _type: ERROR | STOPPED | SUCCESS\n\nconst item = $json;\nconst type = item._type || 'STOPPED';\nconst p = item._payload || {};\n\nfunction esc(s) {\n  return String(s == null ? '' : s)\n    .replace(/&/g, '&amp;')\n    .replace(/</g, '&lt;')\n    .replace(/>/g, '&gt;')\n    .replace(/\"/g, '&quot;')\n    .replace(/'/g, '&#39;');\n}\n\nconst now = new Date().toISOString().replace('T', ' ').replace('Z', ' UTC');\n\nlet headerColor, headerLabel, subject, rows, extraBlock = '';\n\n// ---------- ERROR ----------\nif (type === 'ERROR') {\n  const wf = p.workflow || {};\n  const exec = p.execution || {};\n  const trigger = p.trigger || {};\n  const errorNode = exec.error?.node?.name || trigger.error?.node?.name || exec.lastNodeExecuted || 'Unknown node';\n  const errorMsg = exec.error?.message || trigger.error?.message || 'No error message';\n  const errorName = exec.error?.name || trigger.error?.name || '';\n  const errorStack = (exec.error?.stack || trigger.error?.stack || '').split('\\n').slice(0, 6).join('\\n');\n  const execUrl = exec.url || '';\n\n  headerColor = '#dc2626';\n  headerLabel = 'n8n Workflow ERROR';\n  subject = `[ERROR] ${wf.name || 'SEO Blog'} — ${errorNode}: ${String(errorMsg).slice(0, 70)}`;\n\n  rows = [\n    ['Workflow', esc(wf.name || '')],\n    ['Execution ID', esc(exec.id || '')],\n    ['Failed node', esc(errorNode)],\n    ['Error name', esc(errorName)],\n    ['Error message', esc(errorMsg)],\n    ['Started at', esc(exec.startedAt || '')],\n    ['Stopped at', esc(exec.stoppedAt || '')],\n    ['Reported at', esc(now)]\n  ];\n\n  if (execUrl) {\n    extraBlock = `<div style=\"margin-top:20px;padding:12px 16px;background:#fef2f2;border:1px solid #fecaca;border-radius:6px;font-size:13px;\">\n      <a href=\"${esc(execUrl)}\" style=\"color:#dc2626;text-decoration:none;font-weight:600;\">Open failed execution →</a>\n    </div>`;\n  }\n\n  if (errorStack) {\n    extraBlock += `<div style=\"margin-top:16px;\">\n      <div style=\"font-weight:600;margin-bottom:6px;color:#374151;\">Stack trace (first 6 lines)</div>\n      <pre style=\"background:#111827;color:#e5e7eb;padding:12px;border-radius:6px;overflow:auto;font-size:12px;line-height:1.5;\">${esc(errorStack)}</pre>\n    </div>`;\n  }\n}\n\n// ---------- STOPPED ----------\nelse if (type === 'STOPPED') {\n  const topicId = p.topic_id || '';\n  const keyword = p.keyword || p.topic || '';\n  const reason  = p.reason || p.last_stage || p.phase_status || 'Workflow stopped';\n  const stage   = p.last_stage || p.phase_status || '';\n  const errMsg  = p.last_error || p.qa_reason || p.reason || '';\n\n  headerColor = '#d97706';\n  headerLabel = 'n8n Workflow STOPPED';\n  subject = `[STOPPED] SEO Blog — ${reason}${keyword ? ` — ${keyword}` : ''}`;\n\n  rows = [\n    ['Reason', esc(reason)],\n    ['Stage', esc(stage)],\n    ['Topic ID', esc(topicId)],\n    ['Keyword', esc(keyword)],\n    ['Detail', esc(errMsg)],\n    ['Reported at', esc(now)]\n  ];\n}\n\n// ---------- SUCCESS ----------\nelse {\n  const topicId  = p.topic_id || '';\n  const keyword  = p.keyword || '';\n  const wpUrl    = p.wp_url || '';\n  const wpPostId = p.wp_post_id || '';\n  const wordCount = p.word_count || '';\n  const images   = p.image_count || '';\n\n  headerColor = '#16a34a';\n  headerLabel = 'n8n Workflow SUCCESS';\n  subject = `[SUCCESS] SEO Blog — Draft created${keyword ? `: ${keyword}` : ''}`;\n\n  rows = [\n    ['Topic ID', esc(topicId)],\n    ['Keyword', esc(keyword)],\n    ['Word count', esc(wordCount)],\n    ['Images', esc(images)],\n    ['WP Post ID', esc(wpPostId)],\n    ['WP URL', esc(wpUrl)],\n    ['Reported at', esc(now)]\n  ];\n\n  if (wpUrl) {\n    extraBlock = `<div style=\"margin-top:20px;padding:12px 16px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;font-size:13px;\">\n      <a href=\"${esc(wpUrl)}\" style=\"color:#16a34a;text-decoration:none;font-weight:600;\">Open WordPress draft →</a>\n    </div>`;\n  }\n}\n\nconst rowsHtml = rows.map(([k, v]) =>\n  `<tr>\n     <td style=\"padding:8px 12px;border-bottom:1px solid #e5e7eb;font-weight:600;background:#f9fafb;width:160px;vertical-align:top;\">${k}</td>\n     <td style=\"padding:8px 12px;border-bottom:1px solid #e5e7eb;word-break:break-word;\">${v || '<em>—</em>'}</td>\n   </tr>`\n).join('');\n\nconst html = `<!DOCTYPE html>\n<html>\n<body style=\"margin:0;padding:0;background:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#111827;\">\n  <div style=\"max-width:640px;margin:24px auto;background:#ffffff;border-radius:10px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.08);\">\n    <div style=\"background:${headerColor};padding:16px 20px;color:#ffffff;\">\n      <div style=\"font-size:12px;opacity:0.9;letter-spacing:0.05em;text-transform:uppercase;\">${headerLabel}</div>\n      <div style=\"font-size:18px;font-weight:700;margin-top:4px;\">SEO Blog Automation V7.3</div>\n    </div>\n    <div style=\"padding:8px 8px 16px 8px;\">\n      <table style=\"width:100%;border-collapse:collapse;font-size:14px;\">\n        ${rowsHtml}\n      </table>\n      ${extraBlock}\n      <div style=\"margin-top:16px;font-size:12px;color:#6b7280;\">\n        Automated report from your SEO Blog Automation workflow.\n      </div>\n    </div>\n  </div>\n</body>\n</html>`;\n\nreturn [{ json: { subject, html, _type: type } }];"
+      },
+      "id": "826a20d5-ba6d-4eda-bb3e-57b12dea12a3",
+      "name": "📝 Format Email1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        352,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "fromEmail": "chatgpt.penta@gmail.com",
+        "toEmail": "alimuhammadansar31@gmail.com",
+        "subject": "={{ $json.subject }}",
+        "html": "={{ $json.html }}",
+        "options": {}
+      },
+      "id": "3761565e-fcd0-4661-8672-ea0d5969851b",
+      "name": "📧 Send Email1",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        544,
+        112
+      ],
+      "webhookId": "08c83f78-4b26-4bac-861d-d32c04deae53",
+      "credentials": {
+        "smtp": {
+          "id": "yALcsEwH9aw2LAyu",
+          "name": "SMTP account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Detect which trigger fired and normalize the payload\nconst d = $json || {};\n\n// Error Trigger payload has workflow + execution objects\nif (d.workflow && d.execution) {\n  return [{ json: { _type: 'ERROR', _payload: d } }];\n}\n\n// Webhook payload — check body for status\nconst body = d.body || d;\nconst status = String(body.status || '').toUpperCase();\n\nif (status === 'SUCCESS') {\n  return [{ json: { _type: 'SUCCESS', _payload: body } }];\n}\nif (status === 'STOPPED' || status === 'FAILED') {\n  return [{ json: { _type: 'STOPPED', _payload: body } }];\n}\n\n// Fallback: treat unknown webhook as STOPPED\nreturn [{ json: { _type: 'STOPPED', _payload: body } }];"
+      },
+      "id": "77733e6a-b8fb-46cc-bb71-050d500996bb",
+      "name": "🔀 Classify2",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        5840,
+        -32
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build HTML email based on _type: ERROR | STOPPED | SUCCESS\n\nconst item = $json;\nconst type = item._type || 'STOPPED';\nconst p = item._payload || {};\n\nfunction esc(s) {\n  return String(s == null ? '' : s)\n    .replace(/&/g, '&amp;')\n    .replace(/</g, '&lt;')\n    .replace(/>/g, '&gt;')\n    .replace(/\"/g, '&quot;')\n    .replace(/'/g, '&#39;');\n}\n\nconst now = new Date().toISOString().replace('T', ' ').replace('Z', ' UTC');\n\nlet headerColor, headerLabel, subject, rows, extraBlock = '';\n\n// ---------- ERROR ----------\nif (type === 'ERROR') {\n  const wf = p.workflow || {};\n  const exec = p.execution || {};\n  const trigger = p.trigger || {};\n  const errorNode = exec.error?.node?.name || trigger.error?.node?.name || exec.lastNodeExecuted || 'Unknown node';\n  const errorMsg = exec.error?.message || trigger.error?.message || 'No error message';\n  const errorName = exec.error?.name || trigger.error?.name || '';\n  const errorStack = (exec.error?.stack || trigger.error?.stack || '').split('\\n').slice(0, 6).join('\\n');\n  const execUrl = exec.url || '';\n\n  headerColor = '#dc2626';\n  headerLabel = 'n8n Workflow ERROR';\n  subject = `[ERROR] ${wf.name || 'SEO Blog'} — ${errorNode}: ${String(errorMsg).slice(0, 70)}`;\n\n  rows = [\n    ['Workflow', esc(wf.name || '')],\n    ['Execution ID', esc(exec.id || '')],\n    ['Failed node', esc(errorNode)],\n    ['Error name', esc(errorName)],\n    ['Error message', esc(errorMsg)],\n    ['Started at', esc(exec.startedAt || '')],\n    ['Stopped at', esc(exec.stoppedAt || '')],\n    ['Reported at', esc(now)]\n  ];\n\n  if (execUrl) {\n    extraBlock = `<div style=\"margin-top:20px;padding:12px 16px;background:#fef2f2;border:1px solid #fecaca;border-radius:6px;font-size:13px;\">\n      <a href=\"${esc(execUrl)}\" style=\"color:#dc2626;text-decoration:none;font-weight:600;\">Open failed execution →</a>\n    </div>`;\n  }\n\n  if (errorStack) {\n    extraBlock += `<div style=\"margin-top:16px;\">\n      <div style=\"font-weight:600;margin-bottom:6px;color:#374151;\">Stack trace (first 6 lines)</div>\n      <pre style=\"background:#111827;color:#e5e7eb;padding:12px;border-radius:6px;overflow:auto;font-size:12px;line-height:1.5;\">${esc(errorStack)}</pre>\n    </div>`;\n  }\n}\n\n// ---------- STOPPED ----------\nelse if (type === 'STOPPED') {\n  const topicId = p.topic_id || '';\n  const keyword = p.keyword || p.topic || '';\n  const reason  = p.reason || p.last_stage || p.phase_status || 'Workflow stopped';\n  const stage   = p.last_stage || p.phase_status || '';\n  const errMsg  = p.last_error || p.qa_reason || p.reason || '';\n\n  headerColor = '#d97706';\n  headerLabel = 'n8n Workflow STOPPED';\n  subject = `[STOPPED] SEO Blog — ${reason}${keyword ? ` — ${keyword}` : ''}`;\n\n  rows = [\n    ['Reason', esc(reason)],\n    ['Stage', esc(stage)],\n    ['Topic ID', esc(topicId)],\n    ['Keyword', esc(keyword)],\n    ['Detail', esc(errMsg)],\n    ['Reported at', esc(now)]\n  ];\n}\n\n// ---------- SUCCESS ----------\nelse {\n  const topicId  = p.topic_id || '';\n  const keyword  = p.keyword || '';\n  const wpUrl    = p.wp_url || '';\n  const wpPostId = p.wp_post_id || '';\n  const wordCount = p.word_count || '';\n  const images   = p.image_count || '';\n\n  headerColor = '#16a34a';\n  headerLabel = 'n8n Workflow SUCCESS';\n  subject = `[SUCCESS] SEO Blog — Draft created${keyword ? `: ${keyword}` : ''}`;\n\n  rows = [\n    ['Topic ID', esc(topicId)],\n    ['Keyword', esc(keyword)],\n    ['Word count', esc(wordCount)],\n    ['Images', esc(images)],\n    ['WP Post ID', esc(wpPostId)],\n    ['WP URL', esc(wpUrl)],\n    ['Reported at', esc(now)]\n  ];\n\n  if (wpUrl) {\n    extraBlock = `<div style=\"margin-top:20px;padding:12px 16px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;font-size:13px;\">\n      <a href=\"${esc(wpUrl)}\" style=\"color:#16a34a;text-decoration:none;font-weight:600;\">Open WordPress draft →</a>\n    </div>`;\n  }\n}\n\nconst rowsHtml = rows.map(([k, v]) =>\n  `<tr>\n     <td style=\"padding:8px 12px;border-bottom:1px solid #e5e7eb;font-weight:600;background:#f9fafb;width:160px;vertical-align:top;\">${k}</td>\n     <td style=\"padding:8px 12px;border-bottom:1px solid #e5e7eb;word-break:break-word;\">${v || '<em>—</em>'}</td>\n   </tr>`\n).join('');\n\nconst html = `<!DOCTYPE html>\n<html>\n<body style=\"margin:0;padding:0;background:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#111827;\">\n  <div style=\"max-width:640px;margin:24px auto;background:#ffffff;border-radius:10px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.08);\">\n    <div style=\"background:${headerColor};padding:16px 20px;color:#ffffff;\">\n      <div style=\"font-size:12px;opacity:0.9;letter-spacing:0.05em;text-transform:uppercase;\">${headerLabel}</div>\n      <div style=\"font-size:18px;font-weight:700;margin-top:4px;\">SEO Blog Automation V7.3</div>\n    </div>\n    <div style=\"padding:8px 8px 16px 8px;\">\n      <table style=\"width:100%;border-collapse:collapse;font-size:14px;\">\n        ${rowsHtml}\n      </table>\n      ${extraBlock}\n      <div style=\"margin-top:16px;font-size:12px;color:#6b7280;\">\n        Automated report from your SEO Blog Automation workflow.\n      </div>\n    </div>\n  </div>\n</body>\n</html>`;\n\nreturn [{ json: { subject, html, _type: type } }];"
+      },
+      "id": "2a88fbc2-4295-4a9a-86c1-a71118bfbf8b",
+      "name": "📝 Format Email2",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        6096,
+        -32
+      ]
+    },
+    {
+      "parameters": {
+        "fromEmail": "chatgpt.penta@gmail.com",
+        "toEmail": "alimuhammadansar31@gmail.com",
+        "subject": "={{ $json.subject }}",
+        "html": "={{ $json.html }}",
+        "options": {}
+      },
+      "id": "3f52af85-a5c5-46f2-a540-9cf08dfb1971",
+      "name": "📧 Send Email2",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        6288,
+        -32
+      ],
+      "webhookId": "08c83f78-4b26-4bac-861d-d32c04deae53",
+      "credentials": {
+        "smtp": {
+          "id": "yALcsEwH9aw2LAyu",
+          "name": "SMTP account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Detect which trigger fired and normalize the payload\nconst d = $json || {};\n\n// Error Trigger payload has workflow + execution objects\nif (d.workflow && d.execution) {\n  return [{ json: { _type: 'ERROR', _payload: d } }];\n}\n\n// Webhook payload — check body for status\nconst body = d.body || d;\nconst status = String(body.status || '').toUpperCase();\n\nif (status === 'SUCCESS') {\n  return [{ json: { _type: 'SUCCESS', _payload: body } }];\n}\nif (status === 'STOPPED' || status === 'FAILED') {\n  return [{ json: { _type: 'STOPPED', _payload: body } }];\n}\n\n// Fallback: treat unknown webhook as STOPPED\nreturn [{ json: { _type: 'STOPPED', _payload: body } }];"
+      },
+      "id": "ad61e6ab-0041-4371-b223-d7cf4e633ec5",
+      "name": "🔀 Classify3",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        8736,
+        624
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build HTML email based on _type: ERROR | STOPPED | SUCCESS\n\nconst item = $json;\nconst type = item._type || 'STOPPED';\nconst p = item._payload || {};\n\nfunction esc(s) {\n  return String(s == null ? '' : s)\n    .replace(/&/g, '&amp;')\n    .replace(/</g, '&lt;')\n    .replace(/>/g, '&gt;')\n    .replace(/\"/g, '&quot;')\n    .replace(/'/g, '&#39;');\n}\n\nconst now = new Date().toISOString().replace('T', ' ').replace('Z', ' UTC');\n\nlet headerColor, headerLabel, subject, rows, extraBlock = '';\n\n// ---------- ERROR ----------\nif (type === 'ERROR') {\n  const wf = p.workflow || {};\n  const exec = p.execution || {};\n  const trigger = p.trigger || {};\n  const errorNode = exec.error?.node?.name || trigger.error?.node?.name || exec.lastNodeExecuted || 'Unknown node';\n  const errorMsg = exec.error?.message || trigger.error?.message || 'No error message';\n  const errorName = exec.error?.name || trigger.error?.name || '';\n  const errorStack = (exec.error?.stack || trigger.error?.stack || '').split('\\n').slice(0, 6).join('\\n');\n  const execUrl = exec.url || '';\n\n  headerColor = '#dc2626';\n  headerLabel = 'n8n Workflow ERROR';\n  subject = `[ERROR] ${wf.name || 'SEO Blog'} — ${errorNode}: ${String(errorMsg).slice(0, 70)}`;\n\n  rows = [\n    ['Workflow', esc(wf.name || '')],\n    ['Execution ID', esc(exec.id || '')],\n    ['Failed node', esc(errorNode)],\n    ['Error name', esc(errorName)],\n    ['Error message', esc(errorMsg)],\n    ['Started at', esc(exec.startedAt || '')],\n    ['Stopped at', esc(exec.stoppedAt || '')],\n    ['Reported at', esc(now)]\n  ];\n\n  if (execUrl) {\n    extraBlock = `<div style=\"margin-top:20px;padding:12px 16px;background:#fef2f2;border:1px solid #fecaca;border-radius:6px;font-size:13px;\">\n      <a href=\"${esc(execUrl)}\" style=\"color:#dc2626;text-decoration:none;font-weight:600;\">Open failed execution →</a>\n    </div>`;\n  }\n\n  if (errorStack) {\n    extraBlock += `<div style=\"margin-top:16px;\">\n      <div style=\"font-weight:600;margin-bottom:6px;color:#374151;\">Stack trace (first 6 lines)</div>\n      <pre style=\"background:#111827;color:#e5e7eb;padding:12px;border-radius:6px;overflow:auto;font-size:12px;line-height:1.5;\">${esc(errorStack)}</pre>\n    </div>`;\n  }\n}\n\n// ---------- STOPPED ----------\nelse if (type === 'STOPPED') {\n  const topicId = p.topic_id || '';\n  const keyword = p.keyword || p.topic || '';\n  const reason  = p.reason || p.last_stage || p.phase_status || 'Workflow stopped';\n  const stage   = p.last_stage || p.phase_status || '';\n  const errMsg  = p.last_error || p.qa_reason || p.reason || '';\n\n  headerColor = '#d97706';\n  headerLabel = 'n8n Workflow STOPPED';\n  subject = `[STOPPED] SEO Blog — ${reason}${keyword ? ` — ${keyword}` : ''}`;\n\n  rows = [\n    ['Reason', esc(reason)],\n    ['Stage', esc(stage)],\n    ['Topic ID', esc(topicId)],\n    ['Keyword', esc(keyword)],\n    ['Detail', esc(errMsg)],\n    ['Reported at', esc(now)]\n  ];\n}\n\n// ---------- SUCCESS ----------\nelse {\n  const topicId  = p.topic_id || '';\n  const keyword  = p.keyword || '';\n  const wpUrl    = p.wp_url || '';\n  const wpPostId = p.wp_post_id || '';\n  const wordCount = p.word_count || '';\n  const images   = p.image_count || '';\n\n  headerColor = '#16a34a';\n  headerLabel = 'n8n Workflow SUCCESS';\n  subject = `[SUCCESS] SEO Blog — Draft created${keyword ? `: ${keyword}` : ''}`;\n\n  rows = [\n    ['Topic ID', esc(topicId)],\n    ['Keyword', esc(keyword)],\n    ['Word count', esc(wordCount)],\n    ['Images', esc(images)],\n    ['WP Post ID', esc(wpPostId)],\n    ['WP URL', esc(wpUrl)],\n    ['Reported at', esc(now)]\n  ];\n\n  if (wpUrl) {\n    extraBlock = `<div style=\"margin-top:20px;padding:12px 16px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;font-size:13px;\">\n      <a href=\"${esc(wpUrl)}\" style=\"color:#16a34a;text-decoration:none;font-weight:600;\">Open WordPress draft →</a>\n    </div>`;\n  }\n}\n\nconst rowsHtml = rows.map(([k, v]) =>\n  `<tr>\n     <td style=\"padding:8px 12px;border-bottom:1px solid #e5e7eb;font-weight:600;background:#f9fafb;width:160px;vertical-align:top;\">${k}</td>\n     <td style=\"padding:8px 12px;border-bottom:1px solid #e5e7eb;word-break:break-word;\">${v || '<em>—</em>'}</td>\n   </tr>`\n).join('');\n\nconst html = `<!DOCTYPE html>\n<html>\n<body style=\"margin:0;padding:0;background:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#111827;\">\n  <div style=\"max-width:640px;margin:24px auto;background:#ffffff;border-radius:10px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.08);\">\n    <div style=\"background:${headerColor};padding:16px 20px;color:#ffffff;\">\n      <div style=\"font-size:12px;opacity:0.9;letter-spacing:0.05em;text-transform:uppercase;\">${headerLabel}</div>\n      <div style=\"font-size:18px;font-weight:700;margin-top:4px;\">SEO Blog Automation V7.3</div>\n    </div>\n    <div style=\"padding:8px 8px 16px 8px;\">\n      <table style=\"width:100%;border-collapse:collapse;font-size:14px;\">\n        ${rowsHtml}\n      </table>\n      ${extraBlock}\n      <div style=\"margin-top:16px;font-size:12px;color:#6b7280;\">\n        Automated report from your SEO Blog Automation workflow.\n      </div>\n    </div>\n  </div>\n</body>\n</html>`;\n\nreturn [{ json: { subject, html, _type: type } }];"
+      },
+      "id": "3edf6824-25ee-4499-838f-567b7f2a153c",
+      "name": "📝 Format Email3",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        8976,
+        624
+      ]
+    },
+    {
+      "parameters": {
+        "fromEmail": "chatgpt.penta@gmail.com",
+        "toEmail": "alimuhammadansar31@gmail.com",
+        "subject": "={{ $json.subject }}",
+        "html": "={{ $json.html }}",
+        "options": {}
+      },
+      "id": "a2139705-d222-438d-b39f-092f43fe7ea2",
+      "name": "📧 Send Email3",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        9216,
+        624
+      ],
+      "webhookId": "08c83f78-4b26-4bac-861d-d32c04deae53",
+      "credentials": {
+        "smtp": {
+          "id": "yALcsEwH9aw2LAyu",
+          "name": "SMTP account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Detect which trigger fired and normalize the payload\nconst d = $json || {};\n\n// Error Trigger payload has workflow + execution objects\nif (d.workflow && d.execution) {\n  return [{ json: { _type: 'ERROR', _payload: d } }];\n}\n\n// Webhook payload — check body for status\nconst body = d.body || d;\nconst status = String(body.status || '').toUpperCase();\n\nif (status === 'SUCCESS') {\n  return [{ json: { _type: 'SUCCESS', _payload: body } }];\n}\nif (status === 'STOPPED' || status === 'FAILED') {\n  return [{ json: { _type: 'STOPPED', _payload: body } }];\n}\n\n// Fallback: treat unknown webhook as STOPPED\nreturn [{ json: { _type: 'STOPPED', _payload: body } }];"
+      },
+      "id": "61e3942d-5eb7-439d-b6d5-ffb0cb16792b",
+      "name": "🔀 Classify4",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        9136,
+        848
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Build HTML email based on _type: ERROR | STOPPED | SUCCESS\n\nconst item = $json;\nconst type = item._type || 'STOPPED';\nconst p = item._payload || {};\n\nfunction esc(s) {\n  return String(s == null ? '' : s)\n    .replace(/&/g, '&amp;')\n    .replace(/</g, '&lt;')\n    .replace(/>/g, '&gt;')\n    .replace(/\"/g, '&quot;')\n    .replace(/'/g, '&#39;');\n}\n\nconst now = new Date().toISOString().replace('T', ' ').replace('Z', ' UTC');\n\nlet headerColor, headerLabel, subject, rows, extraBlock = '';\n\n// ---------- ERROR ----------\nif (type === 'ERROR') {\n  const wf = p.workflow || {};\n  const exec = p.execution || {};\n  const trigger = p.trigger || {};\n  const errorNode = exec.error?.node?.name || trigger.error?.node?.name || exec.lastNodeExecuted || 'Unknown node';\n  const errorMsg = exec.error?.message || trigger.error?.message || 'No error message';\n  const errorName = exec.error?.name || trigger.error?.name || '';\n  const errorStack = (exec.error?.stack || trigger.error?.stack || '').split('\\n').slice(0, 6).join('\\n');\n  const execUrl = exec.url || '';\n\n  headerColor = '#dc2626';\n  headerLabel = 'n8n Workflow ERROR';\n  subject = `[ERROR] ${wf.name || 'SEO Blog'} — ${errorNode}: ${String(errorMsg).slice(0, 70)}`;\n\n  rows = [\n    ['Workflow', esc(wf.name || '')],\n    ['Execution ID', esc(exec.id || '')],\n    ['Failed node', esc(errorNode)],\n    ['Error name', esc(errorName)],\n    ['Error message', esc(errorMsg)],\n    ['Started at', esc(exec.startedAt || '')],\n    ['Stopped at', esc(exec.stoppedAt || '')],\n    ['Reported at', esc(now)]\n  ];\n\n  if (execUrl) {\n    extraBlock = `<div style=\"margin-top:20px;padding:12px 16px;background:#fef2f2;border:1px solid #fecaca;border-radius:6px;font-size:13px;\">\n      <a href=\"${esc(execUrl)}\" style=\"color:#dc2626;text-decoration:none;font-weight:600;\">Open failed execution →</a>\n    </div>`;\n  }\n\n  if (errorStack) {\n    extraBlock += `<div style=\"margin-top:16px;\">\n      <div style=\"font-weight:600;margin-bottom:6px;color:#374151;\">Stack trace (first 6 lines)</div>\n      <pre style=\"background:#111827;color:#e5e7eb;padding:12px;border-radius:6px;overflow:auto;font-size:12px;line-height:1.5;\">${esc(errorStack)}</pre>\n    </div>`;\n  }\n}\n\n// ---------- STOPPED ----------\nelse if (type === 'STOPPED') {\n  const topicId = p.topic_id || '';\n  const keyword = p.keyword || p.topic || '';\n  const reason  = p.reason || p.last_stage || p.phase_status || 'Workflow stopped';\n  const stage   = p.last_stage || p.phase_status || '';\n  const errMsg  = p.last_error || p.qa_reason || p.reason || '';\n\n  headerColor = '#d97706';\n  headerLabel = 'n8n Workflow STOPPED';\n  subject = `[STOPPED] SEO Blog — ${reason}${keyword ? ` — ${keyword}` : ''}`;\n\n  rows = [\n    ['Reason', esc(reason)],\n    ['Stage', esc(stage)],\n    ['Topic ID', esc(topicId)],\n    ['Keyword', esc(keyword)],\n    ['Detail', esc(errMsg)],\n    ['Reported at', esc(now)]\n  ];\n}\n\n// ---------- SUCCESS ----------\nelse {\n  const topicId  = p.topic_id || '';\n  const keyword  = p.keyword || '';\n  const wpUrl    = p.wp_url || '';\n  const wpPostId = p.wp_post_id || '';\n  const wordCount = p.word_count || '';\n  const images   = p.image_count || '';\n\n  headerColor = '#16a34a';\n  headerLabel = 'n8n Workflow SUCCESS';\n  subject = `[SUCCESS] SEO Blog — Draft created${keyword ? `: ${keyword}` : ''}`;\n\n  rows = [\n    ['Topic ID', esc(topicId)],\n    ['Keyword', esc(keyword)],\n    ['Word count', esc(wordCount)],\n    ['Images', esc(images)],\n    ['WP Post ID', esc(wpPostId)],\n    ['WP URL', esc(wpUrl)],\n    ['Reported at', esc(now)]\n  ];\n\n  if (wpUrl) {\n    extraBlock = `<div style=\"margin-top:20px;padding:12px 16px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;font-size:13px;\">\n      <a href=\"${esc(wpUrl)}\" style=\"color:#16a34a;text-decoration:none;font-weight:600;\">Open WordPress draft →</a>\n    </div>`;\n  }\n}\n\nconst rowsHtml = rows.map(([k, v]) =>\n  `<tr>\n     <td style=\"padding:8px 12px;border-bottom:1px solid #e5e7eb;font-weight:600;background:#f9fafb;width:160px;vertical-align:top;\">${k}</td>\n     <td style=\"padding:8px 12px;border-bottom:1px solid #e5e7eb;word-break:break-word;\">${v || '<em>—</em>'}</td>\n   </tr>`\n).join('');\n\nconst html = `<!DOCTYPE html>\n<html>\n<body style=\"margin:0;padding:0;background:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#111827;\">\n  <div style=\"max-width:640px;margin:24px auto;background:#ffffff;border-radius:10px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.08);\">\n    <div style=\"background:${headerColor};padding:16px 20px;color:#ffffff;\">\n      <div style=\"font-size:12px;opacity:0.9;letter-spacing:0.05em;text-transform:uppercase;\">${headerLabel}</div>\n      <div style=\"font-size:18px;font-weight:700;margin-top:4px;\">SEO Blog Automation V7.3</div>\n    </div>\n    <div style=\"padding:8px 8px 16px 8px;\">\n      <table style=\"width:100%;border-collapse:collapse;font-size:14px;\">\n        ${rowsHtml}\n      </table>\n      ${extraBlock}\n      <div style=\"margin-top:16px;font-size:12px;color:#6b7280;\">\n        Automated report from your SEO Blog Automation workflow.\n      </div>\n    </div>\n  </div>\n</body>\n</html>`;\n\nreturn [{ json: { subject, html, _type: type } }];"
+      },
+      "id": "439bd09b-3618-421b-b537-b5ee3493a395",
+      "name": "📝 Format Email4",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        9376,
+        848
+      ]
+    },
+    {
+      "parameters": {
+        "fromEmail": "chatgpt.penta@gmail.com",
+        "toEmail": "alimuhammadansar31@gmail.com",
+        "subject": "={{ $json.subject }}",
+        "html": "={{ $json.html }}",
+        "options": {}
+      },
+      "id": "50bdb93f-e98c-4583-b937-cbd1a8e0b5fb",
+      "name": "📧 Send Email4",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        9616,
+        848
+      ],
+      "webhookId": "08c83f78-4b26-4bac-861d-d32c04deae53",
+      "credentials": {
+        "smtp": {
+          "id": "yALcsEwH9aw2LAyu",
+          "name": "SMTP account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const ctx = $('♻️ Restore Context').first().json;\nconst v = $json || {};\nconst reason = v.reason || 'No useful Ahrefs/SEMrush keyword (volume/KD/relevance) found for this topic';\nreturn [{ json: { ...ctx, status: 'KEYWORD_FAILED', keyword_status: 'Skipped', skip_reason: reason, last_error: 'Topic skipped: ' + reason, phase_status: 'KEYWORD_SKIPPED' } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -848,
+        96
+      ],
+      "id": "b7f3c1aa-5e21-4d7a-9c10-2f6d8e0a4b11",
+      "name": "🛑 Skip — No Useful Keyword"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Try the next READY topic after a skipped one, but stop after 3 skips in one execution\nif ($runIndex >= 2) return [];\nreturn [{ json: { next_topic_attempt: $runIndex + 2 } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -700,
+        420
+      ],
+      "id": "c3a9d2f1-7b44-4e0a-8f65-1d2e9b7a6c33",
+      "name": "🔁 Next Topic Gate"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "▶️ Start": {
+      "main": [
+        [
+          {
+            "node": "⚙️ Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "⚙️ Config": {
+      "main": [
+        [
+          {
+            "node": "📊 Read BlogTopics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "📊 Read BlogTopics": {
+      "main": [
+        [
+          {
+            "node": "🎯 Select READY Topic",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🎯 Select READY Topic": {
+      "main": [
+        [
+          {
+            "node": "❓ Topic Found?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "❓ Topic Found?": {
+      "main": [
+        [
+          {
+            "node": "📊 Mark PROCESSING",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "🛑 Stop — No Topic",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "📊 Mark PROCESSING": {
+      "main": [
+        [
+          {
+            "node": "♻️ Restore Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "♻️ Restore Context": {
+      "main": [
+        [
+          {
+            "node": "🌐 PW Health",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🌐 PW Health": {
+      "main": [
+        [
+          {
+            "node": "🔐 PW Login",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🔐 PW Login": {
+      "main": [
+        [
+          {
+            "node": "🧰 PW List Tools",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🧰 PW List Tools": {
+      "main": [
+        [
+          {
+            "node": "🔍 Find Keyword Tool",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🔍 Find Keyword Tool": {
+      "main": [
+        [
+          {
+            "node": "📝 Prep Open Tool",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "📝 Prep Open Tool": {
+      "main": [
+        [
+          {
+            "node": "🚪 PW Open Tool",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🚪 PW Open Tool": {
+      "main": [
+        [
+          {
+            "node": "Ahrefs Search",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "kd filter": {
+      "main": [
+        [
+          {
+            "node": "Select Primary Keyword",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Select Primary Keyword",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Structured Output Parser": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Select Primary Keyword",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Select Primary Keyword": {
+      "main": [
+        [
+          {
+            "node": "Parse & Validate JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse & Validate JSON": {
+      "main": [
+        [
+          {
+            "node": "❓ Keyword Approved?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "❓ Keyword Approved?": {
+      "main": [
+        [
+          {
+            "node": "📊 SEMrush SERP",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "🛑 Skip — No Useful Keyword",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "📊 SEMrush SERP": {
+      "main": [
+        [
+          {
+            "node": "✅ Validate SERP",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "✅ Validate SERP": {
+      "main": [
+        [
+          {
+            "node": "🎯 Prep SERP Competitors",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🎯 Prep SERP Competitors": {
+      "main": [
+        [
+          {
+            "node": "🔀 Split Competitors",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🔀 Split Competitors": {
+      "main": [
+        [
+          {
+            "node": "🌐 Fetch Competitor (PW)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🌐 Fetch Competitor (PW)": {
+      "main": [
+        [
+          {
+            "node": "🧩 Parse Competitors",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🧩 Parse Competitors": {
+      "main": [
+        [
+          {
+            "node": "📊 Analyze SERP",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "📊 Analyze SERP": {
+      "main": [
+        [
+          {
+            "node": "🧩 Prep Gemini FAQ",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🧩 Prep Gemini FAQ": {
+      "main": [
+        [
+          {
+            "node": "🤖 Generate FAQs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🤖 Gemini FAQ Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "🤖 Generate FAQs",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🤖 Generate FAQs": {
+      "main": [
+        [
+          {
+            "node": "📥 Parse Gemini FAQs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "📥 Parse Gemini FAQs": {
+      "main": [
+        [
+          {
+            "node": "🧩 Build FAQ Plan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🧩 Build FAQ Plan": {
+      "main": [
+        [
+          {
+            "node": "🔗 Fetch WP Pages (for internal links)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🔗 Fetch WP Pages (for internal links)": {
+      "main": [
+        [
+          {
+            "node": "🔗 Score Internal Link Candidates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🔗 Score Internal Link Candidates": {
+      "main": [
+        [
+          {
+            "node": "🔗 Build External Link Plan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🔗 Build External Link Plan": {
+      "main": [
+        [
+          {
+            "node": "📋 Build Brief Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "📋 Build Brief Input": {
+      "main": [
+        [
+          {
+            "node": "✍️ Writer Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "✍️ Writer Context": {
+      "main": [
+        [
+          {
+            "node": "🎯 Plan Article",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🧠 Gemini Pro (Planner)": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "🎯 Plan Article",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🎯 Plan Article": {
+      "main": [
+        [
+          {
+            "node": "📋 Parse Plan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "📋 Parse Plan": {
+      "main": [
+        [
+          {
+            "node": "✍️ Write Draft",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "✍️ Gemini Writer Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "✍️ Write Draft",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "✍️ Write Draft": {
+      "main": [
+        [
+          {
+            "node": "🔍 Critique Draft",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🔍 Gemini Pro (Critic)": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "🔍 Critique Draft",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🔍 Critique Draft": {
+      "main": [
+        [
+          {
+            "node": "Parse Critique",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Critique": {
+      "main": [
+        [
+          {
+            "node": "❓ Critique Approved?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "❓ Critique Approved?": {
+      "main": [
+        [
+          {
+            "node": "📥 Parse Article",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "🔄 Retry Prep",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🔄 Retry Prep": {
+      "main": [
+        [
+          {
+            "node": "✍️ Write Draft",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "✅ Validate Article": {
+      "main": [
+        [
+          {
+            "node": "❓ Quality Passed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "❓ Quality Passed?": {
+      "main": [
+        [
+          {
+            "node": "🖼️ Prepare Image Searches",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "📊 Mark QA FAILED",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "🔀 Classify2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🖼️ Prepare Image Searches": {
+      "main": [
+        [
+          {
+            "node": "🔍 Google Images Search",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🔍 Google Images Search": {
+      "main": [
+        [
+          {
+            "node": "🖼️ Select Google Image",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🖼️ Select Google Image": {
+      "main": [
+        [
+          {
+            "node": "🖼️ Download Image",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🖼️ Download Image": {
+      "main": [
+        [
+          {
+            "node": "🖼️ Crop Image Prep",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🖼️ Crop Image Prep": {
+      "main": [
+        [
+          {
+            "node": "🖼️ Crop Image (16:9)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🖼️ Crop Image (16:9)": {
+      "main": [
+        [
+          {
+            "node": "🖼️ Upload to WP Media",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🖼️ Upload to WP Media": {
+      "main": [
+        [
+          {
+            "node": "🖼️ Set Image Metadata",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🖼️ Set Image Metadata": {
+      "main": [
+        [
+          {
+            "node": "🖼️ Collect Media",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🖼️ Collect Media": {
+      "main": [
+        [
+          {
+            "node": "🎨 Enrich Article HTML",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🎨 Enrich Article HTML": {
+      "main": [
+        [
+          {
+            "node": "📦 Prep WP Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "📦 Prep WP Payload": {
+      "main": [
+        [
+          {
+            "node": "📝 Create WP Draft",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "📝 Create WP Draft": {
+      "main": [
+        [
+          {
+            "node": "🔧 Normalize WP Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🔧 Normalize WP Result": {
+      "main": [
+        [
+          {
+            "node": "❓ WP Created?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "❓ WP Created?": {
+      "main": [
+        [
+          {
+            "node": "📊 Final Sheet Update",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "📊 Mark WP FAILED",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "🔀 Classify3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "📊 Final Sheet Update": {
+      "main": [
+        [
+          {
+            "node": "🏁 Done",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "📥 Parse Article": {
+      "main": [
+        [
+          {
+            "node": "Trim Article",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Trim Article": {
+      "main": [
+        [
+          {
+            "node": "Inject FAQ Block",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Inject FAQ Block": {
+      "main": [
+        [
+          {
+            "node": "✅ Validate Article",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🔀 Classify": {
+      "main": [
+        [
+          {
+            "node": "📝 Format Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "📝 Format Email": {
+      "main": [
+        [
+          {
+            "node": "📧 Send Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🛑 Stop — No Topic": {
+      "main": [
+        [
+          {
+            "node": "🔀 Classify",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🔀 Classify1": {
+      "main": [
+        [
+          {
+            "node": "📝 Format Email1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "📝 Format Email1": {
+      "main": [
+        [
+          {
+            "node": "📧 Send Email1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "📊 Mark KEYWORD_FAILED": {
+      "main": [
+        [
+          {
+            "node": "🔁 Next Topic Gate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🔀 Classify2": {
+      "main": [
+        [
+          {
+            "node": "📝 Format Email2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "📝 Format Email2": {
+      "main": [
+        [
+          {
+            "node": "📧 Send Email2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "📊 Mark QA FAILED": {
+      "main": [
+        []
+      ]
+    },
+    "🔀 Classify3": {
+      "main": [
+        [
+          {
+            "node": "📝 Format Email3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "📝 Format Email3": {
+      "main": [
+        [
+          {
+            "node": "📧 Send Email3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "📊 Mark WP FAILED": {
+      "main": [
+        []
+      ]
+    },
+    "🔀 Classify4": {
+      "main": [
+        [
+          {
+            "node": "📝 Format Email4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "📝 Format Email4": {
+      "main": [
+        [
+          {
+            "node": "📧 Send Email4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🏁 Done": {
+      "main": [
+        [
+          {
+            "node": "🔀 Classify4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ahrefs Search": {
+      "main": [
+        [
+          {
+            "node": "Ahrefs Keyword Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ahrefs Keyword Data": {
+      "main": [
+        [
+          {
+            "node": "❓ Ahrefs Credits Available?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "❓ Ahrefs Credits Available?": {
+      "main": [
+        [
+          {
+            "node": "kd filter",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "📈 SEMrush Keyword Data (Credit Fallback)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "📈 SEMrush Keyword Data (Credit Fallback)": {
+      "main": [
+        [
+          {
+            "node": "kd filter",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🛑 Skip — No Useful Keyword": {
+      "main": [
+        [
+          {
+            "node": "📊 Mark KEYWORD_FAILED",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "🔀 Classify1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "⏰ Schedule (2 blogs per day)": {
+      "main": [
+        [
+          {
+            "node": "⚙️ Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "🔁 Next Topic Gate": {
+      "main": [
+        [
+          {
+            "node": "⚙️ Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "timeSavedMode": "fixed",
+    "errorWorkflow": "96IcVjzUVctINkaa",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "versionId": "fbbcb021-ff67-4661-8e11-67a45521afbd",
+  "meta": {
+    "instanceId": "0d4c4a52bbebd2bf5ae0c1db0429b06c6d69740ba8238eb7df69ab764d121972"
+  },
+  "nodeGroups": [],
+  "id": "cM0laR910z7aX8PB",
+  "tags": []
+}
